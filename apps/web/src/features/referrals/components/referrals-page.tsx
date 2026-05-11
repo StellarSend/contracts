@@ -1,9 +1,11 @@
 import { useState } from "react"
-import { cn } from "@workspace/ui/lib/utils"
 import { Navbar } from "../../../ui/Navbar"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@workspace/ui/components/tabs"
 import { TradersTab } from "./traders/traders-tab"
+import { AffiliatesTab } from "./affiliates/affiliates-tab"
+import { DistributionsTab } from "./distributions/distributions-tab"
 import { ReferralsSidebar } from "./referrals-sidebar"
+import { useTraderStats, useAffiliateStats } from "../hooks/use-referrals-data"
 
 type ReferralsTab = "traders" | "affiliates" | "distributions"
 
@@ -26,30 +28,20 @@ function LockIcon() {
   )
 }
 
-function PlaceholderTab({ label }: { label: string }) {
-  return (
-    <div className="flex min-h-80 items-center justify-center text-sm text-muted-foreground">
-      {label} — coming soon
-    </div>
-  )
-}
-
 export function ReferralsPage() {
   const [tab, setTab] = useState<ReferralsTab>("traders")
 
-  // TODO: derive from wallet context + live query results
-  const traderCode: string | null = null
-  const affiliateCode: string | null = null
-  const hasAffiliateCode = Boolean(affiliateCode)
+  const { data: traderStats } = useTraderStats()
+  const { data: affiliateStats } = useAffiliateStats()
 
-  function handleTraderCodeApplied() {
-    // TODO: refetch trader stats after successful code application
-  }
+  const traderCode = traderStats?.referralCode ?? null
+  const affiliateCode = affiliateStats?.code ?? null
+  const hasAffiliateCode = Boolean(affiliateCode)
 
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
       <Navbar variant="app" />
-      <div className="mx-auto w-full max-w-260 px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+      <div className="mx-auto w-full max-w-260 px-4 pb-16 pt-8 sm:px-6 lg:px-12">
         <header className="mb-8">
           <h1 className="text-[22px] font-semibold tracking-tight">Referrals</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -75,17 +67,21 @@ export function ReferralsPage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* 2-column layout: tab content + sticky sidebar */}
+          {/* 2-column: tab content (flex-1) + sticky sidebar (w-72) */}
           <div className="flex gap-5">
             <div className="min-w-0 flex-1">
               <TabsContent value="traders">
-                <TradersTab onCodeApplied={handleTraderCodeApplied} />
+                <TradersTab
+                  onCodeApplied={() => {
+                    // TODO: invalidate trader stats query after code applied
+                  }}
+                />
               </TabsContent>
               <TabsContent value="affiliates">
-                <PlaceholderTab label="Affiliates" />
+                <AffiliatesTab />
               </TabsContent>
               <TabsContent value="distributions">
-                <PlaceholderTab label="Distributions" />
+                <DistributionsTab />
               </TabsContent>
             </div>
 
@@ -93,8 +89,8 @@ export function ReferralsPage() {
               tab={tab}
               traderCode={traderCode}
               affiliateCode={affiliateCode}
-              traderDiscountPct={5}
-              affiliateTier={1}
+              traderDiscountPct={traderStats?.discountPct ?? 5}
+              affiliateTier={affiliateStats?.tier ?? 1}
             />
           </div>
         </Tabs>

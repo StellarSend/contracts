@@ -1,5 +1,6 @@
 import {
   createChart,
+  ColorType,
   CandlestickSeries,
   type IChartApi,
   type ISeriesApi,
@@ -15,6 +16,59 @@ import { useLiveBar } from "../../hooks/useLiveBar"
 import { usePositions } from "../../hooks/usePositions"
 import type { OhlcBar } from "../../lib/oracle"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+
+const CHART_COLORS = {
+  dark: {
+    background: "#0d0e1a",
+    text: "#9598a1",
+    grid: "#1e2035",
+    crosshair: "#444860",
+    crosshairLabel: "#2a2e3e",
+    border: "#1e2035",
+  },
+  light: {
+    background: "#ffffff",
+    text: "#4b5563",
+    grid: "#e5e7eb",
+    crosshair: "#9ca3af",
+    crosshairLabel: "#f3f4f6",
+    border: "#e5e7eb",
+  },
+}
+
+function isDarkMode() {
+  return document.documentElement.classList.contains("dark")
+}
+
+function buildChartOptions(isDark: boolean) {
+  const c = isDark ? CHART_COLORS.dark : CHART_COLORS.light
+  return {
+    layout: {
+      background: { type: ColorType.Solid, color: c.background },
+      textColor: c.text,
+      fontSize: 11,
+    },
+    grid: {
+      vertLines: { color: c.grid, style: LineStyle.Solid },
+      horzLines: { color: c.grid, style: LineStyle.Solid },
+    },
+    crosshair: {
+      mode: CrosshairMode.Normal,
+      vertLine: { color: c.crosshair, labelBackgroundColor: c.crosshairLabel },
+      horzLine: { color: c.crosshair, labelBackgroundColor: c.crosshairLabel },
+    },
+    rightPriceScale: {
+      borderColor: c.border,
+      scaleMargins: { top: 0.1, bottom: 0.1 },
+    },
+    timeScale: {
+      borderColor: c.border,
+      timeVisible: true,
+      secondsVisible: false,
+      rightOffset: 5,
+    },
+  }
+}
 
 type ChartLine = {
   id: string
@@ -57,30 +111,7 @@ export function TVChartContainer({ symbol, period }: Props) {
     if (!containerRef.current) return
 
     const chart = createChart(containerRef.current, {
-      layout: {
-        background: { color: "#0d0e1a" },
-        textColor: "#9598a1",
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: "#1e2035", style: LineStyle.Solid },
-        horzLines: { color: "#1e2035", style: LineStyle.Solid },
-      },
-      crosshair: {
-        mode: CrosshairMode.Normal,
-        vertLine: { color: "#444860", labelBackgroundColor: "#2a2e3e" },
-        horzLine: { color: "#444860", labelBackgroundColor: "#2a2e3e" },
-      },
-      rightPriceScale: {
-        borderColor: "#1e2035",
-        scaleMargins: { top: 0.1, bottom: 0.1 },
-      },
-      timeScale: {
-        borderColor: "#1e2035",
-        timeVisible: true,
-        secondsVisible: false,
-        rightOffset: 5,
-      },
+      ...buildChartOptions(isDarkMode()),
       handleScroll: { mouseWheel: true, pressedMouseMove: true },
       handleScale: { mouseWheel: true, pinch: true },
     })
@@ -107,8 +138,18 @@ export function TVChartContainer({ symbol, period }: Props) {
     })
     resizeObserver.observe(containerRef.current)
 
+    // Watch <html class="dark|light"> and re-theme the chart immediately
+    const themeObserver = new MutationObserver(() => {
+      chart.applyOptions(buildChartOptions(isDarkMode()))
+    })
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    })
+
     return () => {
       resizeObserver.disconnect()
+      themeObserver.disconnect()
       chart.remove()
       chartRef.current = null
       seriesRef.current = null

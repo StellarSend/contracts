@@ -1,9 +1,9 @@
 import { useState } from "react"
+import { Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { useUserSO4Stats } from "../../hooks/use-earn-data"
 import { vestEsSO4, compoundRewards } from "../../lib/earn"
-import { toast } from "sonner"
 
 function fmtToken(v: number, symbol: string) {
   return `${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${symbol}`
@@ -145,13 +145,8 @@ export function AdditionalOpportunitiesTab() {
         title="Referrals"
         description="Share your referral code to earn fee discounts and rebates. Referrers receive a percentage of their referees' trading fees, paid in USDC every epoch."
         action={
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 text-[12px]"
-            onClick={() => toast.info("Referrals coming soon", { description: "In progress" })}
-          >
-            Go to Referrals →
+          <Button size="sm" variant="outline" className="h-8 text-[12px]" asChild>
+            <Link to="/referrals">Go to Referrals →</Link>
           </Button>
         }
       >
