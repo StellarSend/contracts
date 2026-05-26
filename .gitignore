@@ -38,3 +38,5 @@ implementation-plan.md
 
 # Issue push progress tracker
 .issues-progress.json
+ISSUES.md
+push-issues.py
