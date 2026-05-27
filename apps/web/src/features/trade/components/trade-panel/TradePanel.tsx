@@ -8,6 +8,9 @@ import { Badge } from "@workspace/ui/components/badge"
 import { useTradeState } from "../../hooks/useTradeState"
 import { useTokenPrices } from "../../hooks/useTokenPrices"
 import { useTradeFees } from "../../hooks/useTradeFees"
+import { useTokenBalances } from "../../../wallet/hooks/useTokenBalances"
+import { TradeInfoRows } from "./TradeInfoRows"
+import { ConfirmationDialog } from "./ConfirmationDialog"
 import {
   estimateLiquidationPrice,
   formatUsd,
@@ -191,17 +194,30 @@ export function TradePanel() {
 function TradeInputs({ trade }: { trade: ReturnType<typeof useTradeState> }) {
   const { fromAmount, fromTokenAddress, toTokenAddress, tradeFlags, setFromAmount, switchTokens } = trade
   const { getMidPrice } = useTokenPrices()
+  const { data: balances } = useTokenBalances()
 
   const fromPrice = getMidPrice(fromTokenAddress)
   const fromUsd = parseFloat(fromAmount || "0") * fromPrice
+  const walletBalance = balances?.[fromTokenAddress]
 
   return (
     <div className="mt-3 space-y-2">
       {/* Pay */}
       <div className="space-y-1">
-        <label className="text-xs text-muted-foreground">
-          {tradeFlags.isSwap ? "Pay" : "Collateral"}
-        </label>
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-muted-foreground">
+            {tradeFlags.isSwap ? "Pay" : "Collateral"}
+          </label>
+          {walletBalance !== undefined && (
+            <span className="text-xs text-muted-foreground">
+              Balance:{" "}
+              <span className="font-mono font-medium text-foreground">
+                {walletBalance.toLocaleString(undefined, { maximumFractionDigits: 6 })}{" "}
+                {fromTokenAddress}
+              </span>
+            </span>
+          )}
+        </div>
         <div className="relative">
           <Input
             type="number"
