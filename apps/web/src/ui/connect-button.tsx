@@ -3,10 +3,10 @@ import { Button } from "@workspace/ui/components/button"
 import { useWallet } from "@/app/providers"
 
 function shortenAddress(address: string): string {
-  return `${address.slice(0, 4)}…${address.slice(-4)}`
+  return `${address.slice(0, 6)}…`
 }
 
-export function ConnectButton() {
+export function ConnectButton({ compactMobile = false }: { compactMobile?: boolean }) {
   const { address, status, connect, disconnect } = useWallet()
   const [open, setOpen] = useState(false)
   const [walletModalOpen, setWalletModalOpen] = useState(false)
@@ -90,9 +90,18 @@ export function ConnectButton() {
 
   if (status === "connecting") {
     return (
-      <Button disabled variant="outline" className="h-9.5 px-4 text-[13.5px]">
-        <span className="mr-2 inline-block size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        Connecting
+      <Button
+        disabled
+        variant="outline"
+        className="h-9.5 px-4 text-[13.5px]"
+        aria-live="polite"
+        aria-label="Connecting wallet"
+      >
+        <span
+          className="mr-2 inline-block size-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+          aria-hidden="true"
+        />
+        <span role="status">Connecting</span>
       </Button>
     )
   }
@@ -111,71 +120,84 @@ export function ConnectButton() {
           aria-controls={open ? dropdownId : undefined}
         >
           <span className="mr-1.5 inline-block size-2 rounded-full bg-green-500" />
-          {shortenAddress(address)}
+          <span className={compactMobile ? "hidden sm:inline" : ""}>{shortenAddress(address)}</span>
+          {compactMobile && (
+            <span className="sm:hidden" aria-hidden="true">
+              Wallet
+            </span>
+          )}
         </Button>
         {open && (
-          <div
-            id={dropdownId}
-            role="menu"
-            aria-labelledby="wallet-account-trigger"
-            onKeyDown={(event) => {
-              const items = menuItemRefs.current.filter(Boolean) as HTMLButtonElement[]
-              const currentIndex = items.findIndex((item) => item === document.activeElement)
+          <>
+            <button
+              type="button"
+              className="fixed inset-0 z-40 bg-black/30 sm:hidden"
+              aria-label="Close wallet menu"
+              onClick={() => setOpen(false)}
+            />
+            <div
+              id={dropdownId}
+              role="menu"
+              aria-labelledby="wallet-account-trigger"
+              onKeyDown={(event) => {
+                const items = menuItemRefs.current.filter(Boolean) as HTMLButtonElement[]
+                const currentIndex = items.findIndex((item) => item === document.activeElement)
 
-              if (event.key === "Escape") {
-                event.preventDefault()
-                setOpen(false)
-                return
-              }
+                if (event.key === "Escape") {
+                  event.preventDefault()
+                  setOpen(false)
+                  return
+                }
 
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault()
-                if (items.length === 0) return
-                const delta = event.key === "ArrowDown" ? 1 : -1
-                const nextIndex =
-                  currentIndex === -1
-                    ? 0
-                    : (currentIndex + delta + items.length) % items.length
-                items[nextIndex]?.focus()
-                return
-              }
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault()
+                  if (items.length === 0) return
+                  const delta = event.key === "ArrowDown" ? 1 : -1
+                  const nextIndex =
+                    currentIndex === -1
+                      ? 0
+                      : (currentIndex + delta + items.length) % items.length
+                  items[nextIndex]?.focus()
+                  return
+                }
 
-              if (event.key === "Enter" && currentIndex >= 0) {
-                event.preventDefault()
-                items[currentIndex]?.click()
-              }
-            }}
-            className="absolute right-0 top-full z-50 mt-1 w-44 rounded-lg border border-border bg-background py-1 shadow-md"
-          >
-            <div className="border-b border-border px-3 py-2">
-              <p className="truncate text-xs text-muted-foreground">{address}</p>
+                if (event.key === "Enter" && currentIndex >= 0) {
+                  event.preventDefault()
+                  items[currentIndex]?.click()
+                }
+              }}
+              className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border border-border bg-background py-2 shadow-xl sm:absolute sm:right-0 sm:top-full sm:mt-1 sm:w-44 sm:rounded-lg"
+            >
+              <div className="border-b border-border px-3 py-2">
+                <p className="truncate text-xs text-muted-foreground">{address}</p>
+              </div>
+              <button
+                ref={(node) => {
+                  menuItemRefs.current[0] = node
+                }}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  void navigator.clipboard.writeText(address)
+                  setOpen(false)
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Copy address
+              </button>
+              <button
+                ref={(node) => {
+                  menuItemRefs.current[1] = node
+                }}
+                type="button"
+                role="menuitem"
+                onClick={() => { disconnect(); setOpen(false) }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                Disconnect
+              </button>
             </div>
-            <button
-              ref={(node) => {
-                menuItemRefs.current[0] = node
-              }}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                void navigator.clipboard.writeText(address)
-                setOpen(false)
-              }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Copy address
-            </button>
-            <button
-              ref={(node) => {
-                menuItemRefs.current[1] = node
-              }}
-              type="button"
-              role="menuitem"
-              onClick={() => { disconnect(); setOpen(false) }}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              Disconnect
-            </button>
-          </div>
+          </>
         )}
       </div>
     )
@@ -193,7 +215,12 @@ export function ConnectButton() {
         aria-expanded={walletModalOpen}
         aria-controls={walletModalOpen ? "wallet-connect-dialog" : undefined}
       >
-        Connect
+        <span className={compactMobile ? "hidden sm:inline" : ""}>Connect</span>
+        {compactMobile && (
+          <span className="sm:hidden" aria-hidden="true">
+            Wallet
+          </span>
+        )}
       </Button>
 
       {walletModalOpen && (
