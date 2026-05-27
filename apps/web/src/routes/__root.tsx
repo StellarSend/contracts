@@ -1,13 +1,25 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Toaster } from "sonner"
-import { ThemeProvider } from "../ui/theme-provider"
 import appCss from "@workspace/ui/globals.css?url"
+import { ThemeProvider } from "../ui/theme-provider"
+import { WalletProvider } from "../app/providers"
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 30,      // 30s — prices refresh frequently
+      // ─────────────────────────────────────────────────────────────────────────────
+      // Default staleTime (30s) — individual hooks override per the table below.
+      //
+      // Data type            staleTime   refetchInterval
+      // ─────────────────────────────────────────────────
+      // Prices (mark)        3 s         5 s
+      // Positions / Orders   10 s        15 s
+      // Staking / Rewards    20 s        30 s
+      // Market config        60 s        none
+      // Fee rates            120 s       none
+      // ─────────────────────────────────────────────────
+      staleTime: 1000 * 30,
       refetchOnWindowFocus: true,
     },
   },
@@ -167,8 +179,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body>
         <QueryClientProvider client={queryClient}>
           <ThemeProvider>
-            {children}
-            <Toaster richColors position="bottom-right" />
+            <WalletProvider>
+              {children}
+              <Toaster richColors position="bottom-right" />
+            </WalletProvider>
           </ThemeProvider>
         </QueryClientProvider>
         <Scripts />

@@ -26,7 +26,7 @@ export type Order = {
 }
 
 // TODO: Replace with Soroban RPC call: reader.getOrders(account)
-async function fetchOrders(account: string): Promise<Order[]> {
+async function fetchOrders(account: string): Promise<Array<Order>> {
   if (!account) return []
 
   return [
@@ -50,10 +50,11 @@ async function fetchOrders(account: string): Promise<Order[]> {
 const DUMMY_ACCOUNT = "GDUMMY...STELLAR"
 
 export function useOrders(account = DUMMY_ACCOUNT) {
-  return useQuery<Order[]>({
+  return useQuery<Array<Order>>({
     queryKey: queryKeys.orders("stellar-mainnet", account),
     queryFn: () => fetchOrders(account),
     enabled: !!account,
+    staleTime: 10_000,
     refetchInterval: 15_000,
   })
 }

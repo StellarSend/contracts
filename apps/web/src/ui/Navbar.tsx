@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { Button } from "@workspace/ui/components/button"
 import { ThemeToggle } from "./theme-toggle"
+import { ConnectButton } from "./connect-button"
 
 function Logo() {
   return (
@@ -113,9 +114,7 @@ export function Navbar({ variant }: Props) {
         {/* Actions */}
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button variant="outline" className="h-9.5 px-4 text-[13.5px]">
-            Connect
-          </Button>
+          <ConnectButton />
           {!isApp && (
             <Button
               variant="default"

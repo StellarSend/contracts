@@ -13,7 +13,6 @@
 
 import { toast } from "sonner"
 import { formatUsd } from "@/shared/lib/format"
-import { sorobanRpc } from "../../lib/soroban/client"
 
 export type IncreaseOrderParams = {
   account: string
@@ -48,7 +47,7 @@ export type SwapOrderParams = {
   toToken: string
   amountIn: number
   minAmountOut: number
-  swapPath: string[]
+  swapPath: Array<string>
 }
 
 /** Open a long or short position */
@@ -124,7 +123,7 @@ export async function cancelOrder(_account: string, _orderKey: string): Promise<
 /** Claim accrued funding fees */
 export async function claimFundingFees(
   _account: string,
-  marketAddresses: string[],
+  marketAddresses: Array<string>,
 ): Promise<string> {
   // TODO: Call ExchangeRouter.claimFundingFees on Soroban
   const toastId = toast.loading("Claiming funding fees…")
@@ -143,8 +142,8 @@ export async function claimFundingFees(
 // multi-operation transactions natively — use this pattern when contracts are live.
 
 export type BatchOrderParams = {
-  createOrders?: IncreaseOrderParams[]
-  cancelOrderKeys?: string[]
+  createOrders?: Array<IncreaseOrderParams>
+  cancelOrderKeys?: Array<string>
   // TODO: add updateOrderParams when order editing is implemented
 }
 
