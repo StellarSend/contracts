@@ -65,7 +65,7 @@ export function parseSorobanError(error: unknown): string {
   return FALLBACK_MESSAGE
 }
 
-function collectErrorText(error: unknown, seen = new Set<unknown>()): string[] {
+function collectErrorText(error: unknown, seen = new Set<unknown>()): Array<string> {
   if (error === null || error === undefined || seen.has(error)) {
     return []
   }
@@ -99,7 +99,7 @@ function collectErrorText(error: unknown, seen = new Set<unknown>()): string[] {
   )
 }
 
-function collectStringText(value: string): string[] {
+function collectStringText(value: string): Array<string> {
   const trimmed = value.trim()
 
   if (!trimmed) {

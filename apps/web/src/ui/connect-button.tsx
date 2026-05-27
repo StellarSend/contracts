@@ -140,7 +140,7 @@ export function ConnectButton({ compactMobile = false }: { compactMobile?: boole
               role="menu"
               aria-labelledby="wallet-account-trigger"
               onKeyDown={(event) => {
-                const items = menuItemRefs.current.filter(Boolean) as HTMLButtonElement[]
+                const items = menuItemRefs.current.filter(Boolean) as Array<HTMLButtonElement>
                 const currentIndex = items.findIndex((item) => item === document.activeElement)
 
                 if (event.key === "Escape") {

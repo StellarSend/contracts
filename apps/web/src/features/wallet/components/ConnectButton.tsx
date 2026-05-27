@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type ComponentProps } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk"
-import { FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter.module"
-import { HANA_ID } from "@creit.tech/stellar-wallets-kit/modules/hana.module"
-import { XBULL_ID } from "@creit.tech/stellar-wallets-kit/modules/xbull.module"
+import { FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter"
+import { HANA_ID } from "@creit.tech/stellar-wallets-kit/modules/hana"
+import { XBULL_ID } from "@creit.tech/stellar-wallets-kit/modules/xbull"
 import { QRCodeSVG } from "qrcode.react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -17,6 +17,7 @@ import { cn } from "@workspace/ui/lib/utils"
 
 import { createSep7ConnectUri, createSep7TransactionUri } from "../lib/sep7"
 import { useWalletStore } from "../store/wallet-store"
+import type { ComponentProps } from "react"
 
 type ConnectButtonProps = Omit<
   ComponentProps<typeof Button>,
@@ -29,7 +30,7 @@ type WalletOption = {
   installUrl: string
 }
 
-const WALLET_OPTIONS: WalletOption[] = [
+const WALLET_OPTIONS: Array<WalletOption> = [
   {
     id: FREIGHTER_ID,
     name: "Freighter",
@@ -55,7 +56,7 @@ export function ConnectButton({ className, ...props }: ConnectButtonProps) {
   const isConnecting = status === "connecting"
 
   if (status === "connected" && address) {
-    return <AccountBadge address={address} className={className} {...props} />
+    return <AccountBadge address={address} className={className as string | undefined} {...props} />
   }
 
   return (
@@ -85,7 +86,7 @@ function AccountBadge({
 }: {
   address: string
   className?: string
-} & ConnectButtonProps) {
+} & Omit<ConnectButtonProps, "className">) {
   return (
     <Button
       {...props}

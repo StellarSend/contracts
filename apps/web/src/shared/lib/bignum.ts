@@ -83,11 +83,12 @@ function normalizeDisplay(display: string | number): string {
 }
 
 function expandExponentialNotation(value: string): string {
-  const [mantissa, exponent] = value.toLowerCase().split("e")
-
-  if (exponent === undefined) {
+  const lower = value.toLowerCase()
+  if (!lower.includes("e")) {
     return value
   }
+
+  const [mantissa, exponent] = lower.split("e")
 
   const shift = Number(exponent)
 
