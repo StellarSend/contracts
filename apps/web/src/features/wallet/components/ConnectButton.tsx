@@ -3,6 +3,9 @@ import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk"
 import { FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter"
 import { HANA_ID } from "@creit.tech/stellar-wallets-kit/modules/hana"
 import { XBULL_ID } from "@creit.tech/stellar-wallets-kit/modules/xbull"
+import { FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter"
+import { HANA_ID } from "@creit.tech/stellar-wallets-kit/modules/hana"
+import { XBULL_ID } from "@creit.tech/stellar-wallets-kit/modules/xbull"
 import { QRCodeSVG } from "qrcode.react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -15,6 +18,7 @@ import {
 } from "@workspace/ui/components/dialog"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { AccountBadge } from "./AccountBadge"
 import { createSep7ConnectUri, createSep7TransactionUri } from "../lib/sep7"
 import { useWalletStore } from "../store/wallet-store"
 import type { ComponentProps } from "react"
@@ -310,7 +314,7 @@ function Spinner() {
   )
 }
 
-function formatAddress(address: string) {
+export function formatAddress(address: string) {
   if (address.length <= 12) {
     return address
   }
