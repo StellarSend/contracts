@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
@@ -6,6 +7,8 @@ import {  usePositions } from "../../hooks/usePositions"
 import { createDecreaseOrder } from "../../lib/stellar"
 import type {Position} from "../../hooks/usePositions";
 import { formatPct, formatUsd } from "@/shared/lib/format"
+import { queryKeys } from "../../lib/query-keys"
+import { useWalletStore } from "@/features/wallet/store/wallet-store"
 
 type Props = {
   onSelectPosition?: (position: Position) => void
@@ -13,6 +16,8 @@ type Props = {
 
 export function PositionsList({ onSelectPosition }: Props) {
   const { data: positions = [], isLoading } = usePositions()
+  const account = useWalletStore((state) => state.address)
+  const queryClient = useQueryClient()
   const [closing, setClosing] = useState<string | null>(null)
 
   async function handleClose(position: Position) {
@@ -32,6 +37,9 @@ export function PositionsList({ onSelectPosition }: Props) {
         orderType: "MarketDecrease",
         receiveToken: position.collateralToken,
       })
+      if (account) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.positions("stellar-mainnet", account) })
+      }
     } finally {
       setClosing(null)
     }

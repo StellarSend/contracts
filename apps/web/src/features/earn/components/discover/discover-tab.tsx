@@ -4,6 +4,7 @@ import { Button } from "@workspace/ui/components/button"
 import { usePoolsApy } from "../../hooks/use-earn-data"
 import { depositGLV, depositGM } from "../../lib/earn"
 import { formatPct, formatUsd } from "@/shared/lib/format"
+import { useMarketPoolAmounts } from "../../hooks/useMarketPoolAmounts"
 
 type Filter = "all" | "glv" | "gm"
 type SortKey = "apy" | "tvl"
@@ -97,6 +98,7 @@ export function DiscoverTab() {
     const combined = [
       ...glvVaults.map((v) => ({
         id: v.id,
+        marketAddress: "",
         name: `${v.name} [${v.displayPair}]`,
         kind: "glv" as const,
         longToken: "GLV",
@@ -107,6 +109,7 @@ export function DiscoverTab() {
       })),
       ...gmPools.map((p) => ({
         id: p.id,
+        marketAddress: p.marketAddress,
         name: p.name,
         kind: "gm" as const,
         longToken: p.longToken,
@@ -177,61 +180,13 @@ export function DiscoverTab() {
             </thead>
             <tbody>
               {rows.map((row, i) => (
-                <tr
+                <DiscoverRow
                   key={row.id}
-                  className={cn(
-                    "transition-colors hover:bg-muted/20",
-                    i < rows.length - 1 && "border-b border-border/40",
-                  )}
-                >
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <TokenAvatar symbol={row.longToken} />
-                      <span className="font-medium">{row.name}</span>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span
-                      className={cn(
-                        "inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium",
-                        row.kind === "glv"
-                          ? "border-teal-500/20 bg-teal-500/10 text-teal-400"
-                          : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
-                      )}
-                    >
-                      {row.kind.toUpperCase()}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-right">
-                    <span className="font-mono font-semibold text-green-400">
-                      {formatPct(row.apy, { sign: false })}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-right font-mono text-muted-foreground">
-                    {formatUsd(row.tvlUsd, { compact: true })}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    {row.longPct !== undefined ? (
-                      <PoolCompositionBar longPct={row.longPct} shortPct={row.shortPct ?? 0} />
-                    ) : (
-                      <span className="text-[11px] text-muted-foreground">Diversified</span>
-                    )}
-                  </td>
-
-                  <td className="px-5 py-4 text-right">
-                    <Button
-                      size="xs"
-                      disabled={pending === row.id}
-                      onClick={() => void handleEarn(row.id, row.kind, row.name)}
-                    >
-                      {pending === row.id ? "…" : "Earn"}
-                    </Button>
-                  </td>
-                </tr>
+                  row={row}
+                  isLast={i === rows.length - 1}
+                  pending={pending}
+                  onEarn={handleEarn}
+                />
               ))}
             </tbody>
           </table>
@@ -253,5 +208,71 @@ export function DiscoverTab() {
         </p>
       </div>
     </div>
+  )
+}
+
+function DiscoverRow({
+  row,
+  isLast,
+  pending,
+  onEarn,
+}: {
+  row: {
+    id: string
+    marketAddress: string
+    name: string
+    kind: "glv" | "gm"
+    longToken: string
+    apy: number
+    tvlUsd: number
+    longPct: number | undefined
+    shortPct: number | undefined
+  }
+  isLast: boolean
+  pending: string | null
+  onEarn: (id: string, kind: "gm" | "glv", name: string) => Promise<void>
+}) {
+  const { data: poolAmounts } = useMarketPoolAmounts(row.marketAddress)
+  const tvl = row.kind === "gm" ? (poolAmounts?.poolValueUsd ?? row.tvlUsd) : row.tvlUsd
+
+  return (
+    <tr className={cn("transition-colors hover:bg-muted/20", !isLast && "border-b border-border/40")}>
+      <td className="px-5 py-4">
+        <div className="flex items-center gap-3">
+          <TokenAvatar symbol={row.longToken} />
+          <span className="font-medium">{row.name}</span>
+        </div>
+      </td>
+      <td className="px-5 py-4">
+        <span
+          className={cn(
+            "inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium",
+            row.kind === "glv"
+              ? "border-teal-500/20 bg-teal-500/10 text-teal-400"
+              : "border-emerald-500/20 bg-emerald-500/10 text-emerald-400",
+          )}
+        >
+          {row.kind.toUpperCase()}
+        </span>
+      </td>
+      <td className="px-5 py-4 text-right">
+        <span className="font-mono font-semibold text-green-400">{formatPct(row.apy, { sign: false })}</span>
+      </td>
+      <td className="px-5 py-4 text-right font-mono text-muted-foreground">
+        {formatUsd(tvl, { compact: true })}
+      </td>
+      <td className="px-5 py-4">
+        {row.longPct !== undefined ? (
+          <PoolCompositionBar longPct={row.longPct} shortPct={row.shortPct ?? 0} />
+        ) : (
+          <span className="text-[11px] text-muted-foreground">Diversified</span>
+        )}
+      </td>
+      <td className="px-5 py-4 text-right">
+        <Button size="xs" disabled={pending === row.id} onClick={() => void onEarn(row.id, row.kind, row.name)}>
+          {pending === row.id ? "…" : "Earn"}
+        </Button>
+      </td>
+    </tr>
   )
 }

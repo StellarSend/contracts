@@ -7,9 +7,12 @@ import {
 } from "@workspace/ui/components/dialog"
 import { Button } from "@workspace/ui/components/button"
 import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { createIncreaseOrder, createSwapOrder } from "../../lib/stellar"
 import { formatUsd } from "../../lib/trade-math"
 import type { useTradeState } from "../../hooks/useTradeState"
+import { queryKeys } from "../../lib/query-keys"
+import { useWalletStore } from "@/features/wallet/store/wallet-store"
 
 type Props = {
   open: boolean
@@ -31,6 +34,8 @@ export function ConfirmationDialog({
   totalFeesUsd,
 }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const queryClient = useQueryClient()
+  const account = useWalletStore((state) => state.address)
 
   const { tradeFlags, toTokenAddress, collateralAddress, leverage, fromAmount } = tradeState
 
@@ -49,7 +54,7 @@ export function ConfirmationDialog({
         })
       } else {
         await createIncreaseOrder({
-          account: "GDUMMY...STELLAR",    // TODO: real wallet account
+          account: account ?? "GDUMMY...STELLAR",
           marketAddress: tradeState.marketAddress,
           collateralToken: collateralAddress,
           collateralAmount: Number(fromAmount),
@@ -59,6 +64,9 @@ export function ConfirmationDialog({
           orderType: tradeFlags.isMarket ? "MarketIncrease" : "LimitIncrease",
           leverage,
         })
+        if (account) {
+          await queryClient.invalidateQueries({ queryKey: queryKeys.positions("stellar-mainnet", account) })
+        }
       }
       onClose()
     } finally {

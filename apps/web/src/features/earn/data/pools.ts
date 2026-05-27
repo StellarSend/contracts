@@ -1,5 +1,6 @@
 export type GmPool = {
   id: string
+  marketAddress: string
   name: string
   longToken: string
   shortToken: string
@@ -25,6 +26,7 @@ export type GlvVault = {
 export const GM_POOLS: Array<GmPool> = [
   {
     id: "gm-btc-usdc",
+    marketAddress: "BTC-BTC-USDC",
     name: "BTC/USD",
     longToken: "BTC",
     shortToken: "USDC",
@@ -35,6 +37,7 @@ export const GM_POOLS: Array<GmPool> = [
   },
   {
     id: "gm-eth-usdc",
+    marketAddress: "ETH-ETH-USDC",
     name: "ETH/USD",
     longToken: "ETH",
     shortToken: "USDC",
@@ -45,6 +48,7 @@ export const GM_POOLS: Array<GmPool> = [
   },
   {
     id: "gm-xlm-usdc",
+    marketAddress: "XLM-XLM-USDC",
     name: "XLM/USD",
     longToken: "XLM",
     shortToken: "USDC",
