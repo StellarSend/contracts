@@ -9,8 +9,6 @@ import { useTradeState } from "../../hooks/useTradeState"
 import { useTokenPrices } from "../../hooks/useTokenPrices"
 import { useTradeFees } from "../../hooks/useTradeFees"
 import { useTokenBalances } from "../../../wallet/hooks/useTokenBalances"
-import { TradeInfoRows } from "./TradeInfoRows"
-import { ConfirmationDialog } from "./ConfirmationDialog"
 import {
   estimateLiquidationPrice,
   formatUsd,

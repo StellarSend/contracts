@@ -1,5 +1,5 @@
-import { NETWORK } from "@/app/config/network"
 import { useWalletStore } from "../store/wallet-store"
+import { NETWORK } from "@/app/config/network"
 
 export function useNetwork() {
   const { network, status } = useWalletStore()
