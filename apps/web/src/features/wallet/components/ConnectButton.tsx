@@ -3,6 +3,7 @@ import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk"
 import { FREIGHTER_ID } from "@creit.tech/stellar-wallets-kit/modules/freighter.module"
 import { HANA_ID } from "@creit.tech/stellar-wallets-kit/modules/hana.module"
 import { XBULL_ID } from "@creit.tech/stellar-wallets-kit/modules/xbull.module"
+import { QRCodeSVG } from "qrcode.react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -14,6 +15,7 @@ import {
 } from "@workspace/ui/components/dialog"
 import { cn } from "@workspace/ui/lib/utils"
 
+import { createSep7ConnectUri, createSep7TransactionUri } from "../lib/sep7"
 import { useWalletStore } from "../store/wallet-store"
 
 type ConnectButtonProps = Omit<
@@ -111,6 +113,9 @@ function WalletModal({
     () => new Set(),
   )
   const setConnected = useWalletStore((state) => state.setConnected)
+  const pendingTransactionXdr = useWalletStore(
+    (state) => state.pendingTransactionXdr,
+  )
   const setStatus = useWalletStore((state) => state.setStatus)
 
   useEffect(() => {
@@ -179,6 +184,20 @@ function WalletModal({
       }),
     [availableWalletIds],
   )
+  const sep7Uri = useMemo(() => {
+    const origin =
+      typeof window === "undefined" ? "https://so4.markets" : window.location.origin
+    const callbackUrl = new URL("/", origin).toString()
+
+    if (pendingTransactionXdr) {
+      return createSep7TransactionUri({
+        callbackUrl,
+        xdr: pendingTransactionXdr,
+      })
+    }
+
+    return createSep7ConnectUri(origin)
+  }, [pendingTransactionXdr])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -237,6 +256,29 @@ function WalletModal({
             {error}
           </p>
         )}
+
+        <div className="space-y-3 rounded-md border border-border p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-medium">Use Mobile Wallet</p>
+              <p className="text-sm text-muted-foreground">
+                {pendingTransactionXdr
+                  ? "Scan to approve the pending transaction."
+                  : "Scan to connect from a mobile wallet."}
+              </p>
+            </div>
+            <a
+              className="inline-flex h-6 shrink-0 items-center justify-center rounded-md border border-border px-2 text-xs font-medium transition-colors hover:bg-input/50"
+              href={sep7Uri}
+            >
+              Scan to connect
+            </a>
+          </div>
+
+          <div className="flex justify-center rounded-md bg-white p-4">
+            <QRCodeSVG value={sep7Uri} size={168} level="M" />
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   )
