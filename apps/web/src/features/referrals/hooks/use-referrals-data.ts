@@ -1,4 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
+import { useWalletStore } from "@/features/wallet/store/wallet-store"
+import { ReferralStorageClient } from "@/lib/contracts/referral-storage"
+import { getTraderDiscountBps, getTraderReferralCode } from "@/lib/soroban/referral-storage"
 
 export type TimePeriod = "24h" | "7d" | "30d" | "90d" | "total"
 
@@ -7,6 +10,7 @@ export type TraderStats = {
   tradingVolumeUsd: number
   discountUsd: number
   discountPct: number
+  claimableRebateUsd: number
   lastUpdated: string | null
 }
 
@@ -37,21 +41,41 @@ export type DistributionEntry = {
 }
 
 export function useTraderStats(period: TimePeriod = "total") {
+  const address = useWalletStore((state) => state.address)
+
   return useQuery<TraderStats>({
-    queryKey: ["referrals", "trader-stats", period],
+    queryKey: ["referrals", "trader-stats", address, period],
     queryFn: async (): Promise<TraderStats> => {
-      // TODO: Fetch from ReferralsReader Soroban contract:
-      //   - getUserReferralCode(account) → referralCode bytes32 → decode to string
-      //   - getReferralStats(account, period) → tradingVolumeUsd, discountUsd
-      //   - Look up the code's tier to get discountPct
+      if (!address) {
+        return {
+          referralCode: null,
+          tradingVolumeUsd: 0,
+          discountUsd: 0,
+          discountPct: 0,
+          claimableRebateUsd: 0,
+          lastUpdated: null,
+        }
+      }
+
+      const client = new ReferralStorageClient()
+      const [referralCode, rebates, discountBps] = await Promise.all([
+        getTraderReferralCode(address),
+        client.getTraderRebates(address),
+        getTraderDiscountBps(address),
+      ])
+
+      const discountPct = referralCode ? Math.max(1, Math.round(discountBps / 100)) : 5
+
       return {
-        referralCode: null,
-        tradingVolumeUsd: 0,
-        discountUsd: 0,
-        discountPct: 5,
-        lastUpdated: null,
+        referralCode,
+        tradingVolumeUsd: rebates.totalDiscountUsd,
+        discountUsd: rebates.totalDiscountUsd,
+        discountPct,
+        claimableRebateUsd: rebates.claimableRebateUsd,
+        lastUpdated: new Date().toISOString(),
       }
     },
+    enabled: !!address,
     staleTime: 60_000,
   })
 }

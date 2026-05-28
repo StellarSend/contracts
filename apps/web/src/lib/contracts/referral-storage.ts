@@ -1,42 +1,52 @@
 import { CONTRACTS } from "@/app/config/contracts"
+import type { TierLevel } from "./referral-storage-types"
+import {
+  getReferralCodeStats,
+  getTraderDiscountBps,
+  getTraderRebateInfo,
+  getTraderReferralCode,
+  type ReferralCodeStats,
+  type TraderRebateInfo,
+} from "@/lib/soroban/referral-storage"
 
-export type TierLevel = 1 | 2 | 3
-
-export type ReferralInfo = {
-  /** Affiliate code registered to the account, or null when none is set. */
-  code: string | null
-  /** Trader tier (1=Bronze, 2=Silver, 3=Gold). */
-  tier: TierLevel
-}
-
-export type ReferralStorageBinding = {
-  getReferralInfo: (account: string) => Promise<ReferralInfo>
-  getTraderTier: (account: string) => Promise<TierLevel>
-}
+export type { TierLevel, ReferralInfo, ReferralStorageBinding } from "./referral-storage-types"
+export type { ReferralCodeStats, TraderRebateInfo }
 
 /**
  * Client for the ReferralStorage Soroban contract.
  *
- * Read methods currently return the empty default — the shared Soroban read
- * (simulate + XDR decode) layer is still a stub across the app (see
- * StakingRouterClient). The method signatures and return types are the stable
- * surface the referral hooks consume.
+ * Read methods simulate against the deployed contract (or return typed defaults
+ * when the contract id is still a placeholder). Write helpers live in
+ * `@/lib/soroban/referral-storage`.
  */
-export class ReferralStorageClient implements ReferralStorageBinding {
+export class ReferralStorageClient {
   readonly contractId: string
 
   constructor(contractId = CONTRACTS.referralStorage) {
     this.contractId = contractId
   }
 
-  async getReferralInfo(_account: string): Promise<ReferralInfo> {
-    // TODO: simulate ReferralStorage.get_referral_info(account) on
-    // `this.contractId` and decode { code: bytes32 -> string | null, tier: u32 }.
-    return { code: null, tier: 1 }
+  async getReferralInfo(account: string): Promise<import("./referral-storage-types").ReferralInfo> {
+    const [code, discountBps] = await Promise.all([
+      getTraderReferralCode(account),
+      getTraderDiscountBps(account),
+    ])
+
+    const tier: TierLevel = discountBps >= 500 ? 3 : discountBps >= 300 ? 2 : 1
+
+    return { code, tier }
   }
 
   async getTraderTier(account: string): Promise<TierLevel> {
     const info = await this.getReferralInfo(account)
     return info.tier
+  }
+
+  async getStatsForCode(code: string, period: string): Promise<ReferralCodeStats> {
+    return getReferralCodeStats(code, period)
+  }
+
+  async getTraderRebates(account: string): Promise<TraderRebateInfo> {
+    return getTraderRebateInfo(account)
   }
 }

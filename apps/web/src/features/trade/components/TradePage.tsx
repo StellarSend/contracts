@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react"
 import { getRouteApi } from "@tanstack/react-router"
 import { useTradeState } from "../hooks/useTradeState"
-import { useOrderEventPolling } from "../hooks/useOrderEventPolling"
 import { Navbar } from "../../../ui/Navbar"
 import { TVChart } from "./chart/TVChart"
 import { TradePanel } from "./trade-panel/TradePanel"
@@ -12,8 +11,6 @@ const tradeRoute = getRouteApi("/trade")
 export function TradePage() {
   const trade = useTradeState()
   const { setToTokenAddress, setTradeType } = trade
-
-  useOrderEventPolling()
 
   // Pre-fill the form from a shared deeplink (e.g. /trade?market=BTC&type=long).
   const search = tradeRoute.useSearch()
