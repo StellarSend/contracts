@@ -25,7 +25,7 @@ export function useTradeFees(params: {
   const { sizeUsd, marketAddress, tradeType = "Long" } = params
 
   const { data: feeConfig } = useQuery({
-    queryKey: queryKeys.feeConfig(CHAIN_ID, marketAddress),
+    queryKey: queryKeys.trade.feeConfig(CHAIN_ID, marketAddress),
     queryFn: () => fetchFeeConfig(marketAddress),
     staleTime: 120_000,
     enabled: !!marketAddress,

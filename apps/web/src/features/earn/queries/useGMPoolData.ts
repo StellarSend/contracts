@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { GM_POOLS } from "../data/pools"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 export type GMPoolData = {
   apr: number
@@ -38,7 +39,7 @@ export function useGMPoolData(poolAddress: string) {
   const { address, status } = useWalletStore()
 
   return useQuery<GMPoolData>({
-    queryKey: ["earn", "gmPoolData", poolAddress, address],
+    queryKey: queryKeys.earn.gmPoolData(poolAddress, address ?? null),
     queryFn: async (): Promise<GMPoolData> => {
       const pool = GM_POOLS.find((entry) => entry.marketAddress === poolAddress)
 

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
 import { ReferralStorageClient, type TierLevel } from "@/lib/contracts/referral-storage"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 /**
  * Reads a wallet's trader tier from ReferralStorage (#58). Falls back to the
@@ -12,7 +13,7 @@ export function useReferralTier(address?: string) {
   const target = address ?? connected
 
   return useQuery<TierLevel>({
-    queryKey: ["referrals", "tier", target],
+    queryKey: queryKeys.referrals.tier(target ?? null),
     queryFn: async (): Promise<TierLevel> => {
       const client = new ReferralStorageClient()
       return client.getTraderTier(target as string)

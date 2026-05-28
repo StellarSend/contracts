@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { fromSorobanAmount } from "@/shared/lib/bignum"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 type MarketPoolAmounts = {
   longTokenAmount: number
@@ -21,7 +22,7 @@ async function fetchMarketPoolAmounts(marketAddress: string): Promise<MarketPool
 
 export function useMarketPoolAmounts(marketAddress: string) {
   return useQuery<MarketPoolAmounts>({
-    queryKey: ["earn", "marketPoolAmounts", marketAddress],
+    queryKey: queryKeys.earn.marketPoolAmounts(marketAddress),
     queryFn: () => fetchMarketPoolAmounts(marketAddress),
     enabled: !!marketAddress,
     staleTime: 20_000,

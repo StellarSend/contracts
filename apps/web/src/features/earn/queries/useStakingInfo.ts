@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { StakingRouterClient } from "@/lib/contracts/staking-router"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 export type StakingInfo = {
   stakedSO4: bigint
@@ -16,7 +17,7 @@ export function useStakingInfo() {
   const { address, status } = useWalletStore()
 
   return useQuery<StakingInfo>({
-    queryKey: ["earn", "stakingInfo", address],
+    queryKey: queryKeys.earn.stakingInfo(address ?? ""),
     queryFn: async (): Promise<StakingInfo> => {
       const info = await stakingRouter.getStakerInfo(address!)
 

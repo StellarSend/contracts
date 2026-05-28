@@ -13,7 +13,7 @@ export function useTokenPrices() {
   const { getToken } = useTokenList()
 
   const { data, isLoading, error } = useQuery({
-    queryKey: queryKeys.tokenPrices(CHAIN_ID),
+    queryKey: queryKeys.trade.tokenPrices(CHAIN_ID),
     queryFn: fetchTokenPrices,
     staleTime: 3_000,
     refetchInterval: 5_000,

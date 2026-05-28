@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import type { TierLevel } from "@/lib/contracts/referral-storage"
 import type { TimePeriod } from "../hooks/use-referrals-data"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 export type ReferralStats = {
   /** Number of traders who registered under the code. */
@@ -22,7 +23,7 @@ export type ReferralStats = {
  */
 export function useReferralStats(code: string | null, period: TimePeriod = "total") {
   return useQuery<ReferralStats>({
-    queryKey: ["referrals", "stats", code, period],
+    queryKey: queryKeys.referrals.stats(code, period),
     queryFn: async (): Promise<ReferralStats> => {
       // TODO: read ReferralStorage aggregate stats for `code` over `period`
       // (trader count, referred volume, accrued rebates) and derive the tier.

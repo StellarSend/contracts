@@ -1,9 +1,11 @@
 import { useTradeFees } from "../../hooks/useTradeFees"
+import { useFundingRate } from "../../hooks/useFundingRate"
 import { useTokenPrices } from "../../hooks/useTokenPrices"
 import { estimateLiquidationPrice, formatUsd } from "../../lib/trade-math"
 import { getEstimatedEntryPrice, getPriceImpactPct } from "../../lib/pricing"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@workspace/ui/components/tooltip"
 import type { TradeState } from "../../hooks/useTradeState"
+import { formatPct } from "@/shared/lib/format"
 
 type Props = Pick<
   TradeState,
@@ -21,6 +23,7 @@ export function TradeInfoRows({
   tradeMode,
 }: Props) {
   const { getMidPrice } = useTokenPrices()
+  const { data: fundingRate } = useFundingRate(marketAddress)
   const fees = useTradeFees({ sizeUsd, marketAddress, isIncrease: true, tradeType })
 
   const isLong = tradeType === "Long"
@@ -58,6 +61,14 @@ export function TradeInfoRows({
       <Row label="Entry price" value={estimatedEntryPrice > 0 ? formatUsd(estimatedEntryPrice) : "-"} />
       {tradeMode === "Limit" && <Row label="Limit price" value="-" />}
       <Row label="Liq. price" value={liquidationPrice > 0 ? formatUsd(liquidationPrice) : "-"} highlight />
+      <Row
+        label="Funding"
+        value={
+          fundingRate
+            ? `${formatPct(fundingRate.ratePerHour * 100, { decimals: 3 })}/h`
+            : "-"
+        }
+      />
       <Row label="Position fee" value={formatUsd(fees.positionFeeUsd)} />
       <Row label="Price impact" value={`${priceImpactPct.toFixed(2)}%`} highlight={Math.abs(priceImpactPct) > 0.5} />
       <ExecutionFeeRow value={executionFeeDisplay} />

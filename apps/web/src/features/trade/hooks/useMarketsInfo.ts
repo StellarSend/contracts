@@ -50,7 +50,7 @@ export function useMarketsInfo() {
   const { markets } = useMarkets()
 
   const { data, isLoading, error } = useQuery<Array<MarketInfo>>({
-    queryKey: queryKeys.marketsInfo(CHAIN_ID),
+    queryKey: queryKeys.trade.marketsInfo(CHAIN_ID),
     queryFn: () => fetchMarketsInfo(markets),
     staleTime: 60_000,
   })

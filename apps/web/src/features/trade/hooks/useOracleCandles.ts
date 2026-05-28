@@ -5,7 +5,7 @@ import type {OhlcBar} from "../lib/oracle";
 
 export function useOracleCandles(symbol: string | undefined, period: string) {
   return useQuery<Array<OhlcBar>>({
-    queryKey: queryKeys.oracleCandles(symbol ?? "", period),
+    queryKey: queryKeys.trade.oracleCandles(symbol ?? "", period),
     queryFn: () => fetchOracleCandles(symbol!, period, 500),
     enabled: !!symbol,
     // Historical candles don't auto-refresh — period/symbol change triggers a manual invalidation

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
 import { ReferralStorageClient } from "@/lib/contracts/referral-storage"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 /**
  * Reads the affiliate code registered to the connected wallet from
@@ -12,7 +13,7 @@ export function useReferralCode() {
   const address = useWalletStore((state) => state.address)
 
   return useQuery<string | null>({
-    queryKey: ["referrals", "code", address],
+    queryKey: queryKeys.referrals.code(address ?? null),
     queryFn: async (): Promise<string | null> => {
       const client = new ReferralStorageClient()
       const info = await client.getReferralInfo(address as string)

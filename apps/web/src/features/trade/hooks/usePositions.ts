@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { queryKeys } from "../lib/query-keys"
 import { MARKETS } from "../data/markets"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
+import { SyntheticsReaderClient } from "@/lib/contracts/synthetics-reader"
+import { fromSorobanAmount } from "@/shared/lib/bignum"
+import { getToken } from "../data/tokens"
 
 export type Position = {
   key: string                   // unique: account + market + collateral + isLong
@@ -24,52 +27,76 @@ export type Position = {
   fundingFeeDebt: number
 }
 
+const CHAIN_ID = "stellar-mainnet"
+const USD_DECIMALS = 30
+
 async function fetchPositions(account: string): Promise<Array<Position>> {
   if (!account) return []
 
-  // TODO: replace with SyntheticsReader.getPositionInfo market query once market addresses are live.
+  const client = new SyntheticsReaderClient()
+
   const positions = await Promise.all(
-    MARKETS.map(async (market, index) => {
-      const isLong = index % 2 === 0
-      const entryPrice = market.indexTokenAddress === "BTC" ? 66_000 : market.indexTokenAddress === "ETH" ? 3_600 : 0.12
-      const markPrice = entryPrice * (isLong ? 1.018 : 0.985)
-      const sizeUsd = index === 0 ? 10_000 : index === 1 ? 2_500 : 0
-      if (sizeUsd <= 0) return null
+    MARKETS.flatMap(async (market) => {
+      return Promise.all(
+        [true, false].map(async (isLong) => {
+          try {
+            const info = await client.getPositionInfo(account, market.address, isLong)
+            if (!info || info.sizeUsd === 0n) return null
 
-      const pnl = ((markPrice - entryPrice) / entryPrice) * sizeUsd * (isLong ? 1 : -1)
-      const fundingFeeDebt = sizeUsd * 0.0008
-      const pnlAfterFees = pnl - fundingFeeDebt
+            const collateralTokenSymbol = isLong ? market.longTokenAddress : market.shortTokenAddress
+            const tokenMeta = getToken(collateralTokenSymbol)
+            const decimals = tokenMeta?.decimals ?? 7
 
-      return {
-        key: `${account}-${market.address}-${isLong ? "long" : "short"}`,
-        account,
-        marketAddress: market.address,
-        marketName: market.name,
-        indexToken: market.indexTokenAddress,
-        collateralToken: market.shortTokenAddress,
-        collateralAmount: sizeUsd / 10,
-        collateralUsd: sizeUsd / 10,
-        sizeUsd,
-        entryPrice,
-        markPrice,
-        liquidationPrice: isLong ? entryPrice * 0.94 : entryPrice * 1.09,
-        leverage: 10,
-        pnl,
-        pnlPercent: (pnl / sizeUsd) * 100,
-        isLong,
-        pnlAfterFees,
-        fundingFeeDebt,
-      } satisfies Position
-    }),
-  )
+            const collateralAmount = fromSorobanAmount(info.collateralAmount, decimals)
+            const collateralUsd = fromSorobanAmount(info.collateralUsd, USD_DECIMALS)
+            const sizeUsd = fromSorobanAmount(info.sizeUsd, USD_DECIMALS)
+            const entryPrice = fromSorobanAmount(info.entryPrice, USD_DECIMALS)
+            const markPrice = fromSorobanAmount(info.markPrice, USD_DECIMALS)
+            const liquidationPrice = fromSorobanAmount(info.liquidationPrice, USD_DECIMALS)
+            const pnl = fromSorobanAmount(info.pnl, USD_DECIMALS)
+            const fundingFeeDebt = fromSorobanAmount(info.fundingFeeDebt, USD_DECIMALS)
+            
+            const pnlAfterFees = pnl - fundingFeeDebt
+            const pnlPercent = collateralUsd > 0 ? (pnlAfterFees / collateralUsd) * 100 : 0
+            const leverage = info.leverage
 
-  return positions.filter((position): position is Position => position !== null)
+            return {
+              key: `${account}-${market.address}-${isLong ? "long" : "short"}`,
+              account,
+              marketAddress: market.address,
+              marketName: market.name,
+              indexToken: market.indexTokenAddress,
+              collateralToken: collateralTokenSymbol,
+              collateralAmount,
+              collateralUsd,
+              sizeUsd,
+              entryPrice,
+              markPrice,
+              liquidationPrice,
+              leverage,
+              pnl,
+              pnlPercent,
+              isLong,
+              pnlAfterFees,
+              fundingFeeDebt,
+            } satisfies Position
+          } catch (e) {
+            console.error(`Failed to fetch position info for market=${market.address} isLong=${isLong}`, e)
+            return null
+          }
+        })
+      )
+    })
+  ).then((results) => results.flat().filter((p): p is Position => p !== null))
+
+  return positions
 }
 
 export function usePositions() {
   const account = useWalletStore((state) => state.address)
+
   return useQuery<Array<Position>>({
-    queryKey: queryKeys.positions("stellar-mainnet", account ?? ""),
+    queryKey: queryKeys.trade.positions(CHAIN_ID, account ?? ""),
     queryFn: () => fetchPositions(account!),
     enabled: !!account,
     staleTime: 10_000,
@@ -77,3 +104,4 @@ export function usePositions() {
     refetchIntervalInBackground: false,
   })
 }
+

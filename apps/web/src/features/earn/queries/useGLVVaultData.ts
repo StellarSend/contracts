@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { GLV_VAULTS, GM_POOLS } from "../data/pools"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
+import { queryKeys } from "@/shared/lib/query-keys"
 
 export type GLVPoolAllocation = {
   poolId: string
@@ -31,7 +32,7 @@ export function useGLVVaultData(glvAddress: string) {
   const { address, status } = useWalletStore()
 
   return useQuery<GLVVaultData>({
-    queryKey: ["earn", "glvVaultData", glvAddress, address],
+    queryKey: queryKeys.earn.glvVaultData(glvAddress, address ?? null),
     queryFn: async (): Promise<GLVVaultData> => {
       const vault = GLV_VAULTS.find((entry) => entry.id === glvAddress)
 

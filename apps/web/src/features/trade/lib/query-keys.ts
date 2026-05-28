@@ -31,7 +31,8 @@ export const queryKeys = {
     ["tradeHistory", chainId, account, page] as const,
 
   // Funding rate + next epoch timestamp
-  fundingRate: (chainId: string) => ["fundingRate", chainId] as const,
+  fundingRate: (chainId: string, marketAddress: string) =>
+    ["fundingRate", chainId, marketAddress] as const,
 
   // User token balances (invalidated after swap / deposit / withdraw)
   tokenBalances: (chainId: string, account: string) =>
