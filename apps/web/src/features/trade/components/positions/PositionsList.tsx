@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Button } from "@workspace/ui/components/button"
@@ -82,6 +83,14 @@ export function PositionsList({ onSelectPosition }: Props) {
     } finally {
       setClosing(null)
     }
+  }
+
+  function handleShare(position: Position) {
+    const url = `${window.location.origin}/trade?market=${encodeURIComponent(position.indexToken)}&type=${position.isLong ? "long" : "short"}`
+    void navigator.clipboard.writeText(url).then(
+      () => toast.success("Position link copied", { description: url }),
+      () => toast.error("Could not copy link to clipboard"),
+    )
   }
 
   async function handleClaim(position: Position) {
@@ -181,6 +190,16 @@ export function PositionsList({ onSelectPosition }: Props) {
               </td>
               <td className="px-4 py-2">
                 <div className="flex items-center gap-1">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleShare(p)
+                    }}
+                  >
+                    Share
+                  </Button>
                   <Button
                     size="xs"
                     variant="outline"

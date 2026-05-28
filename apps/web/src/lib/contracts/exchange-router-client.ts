@@ -1,4 +1,4 @@
-import { Contract, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk"
+import { Contract, TransactionBuilder, rpc, scValToNative, xdr } from "@stellar/stellar-sdk"
 import { CONTRACTS } from "@/app/config/contracts"
 import { NETWORK } from "@/app/config/network"
 import { sorobanRpc } from "@/lib/soroban/client"
@@ -120,6 +120,57 @@ export async function buildClaimFundingFeesTransaction(
   }
 
   return rpc.assembleTransaction(tx, simulation).build()
+}
+
+export type CreateDepositParams = {
+  account: string
+  market: string
+  longTokenAmount: bigint
+  shortTokenAmount: bigint
+}
+
+/**
+ * Build a fee-assembled Soroban transaction calling ExchangeRouter.createDeposit.
+ * Returns both the assembled transaction and the simulated GM tokens to receive
+ * (decoded from the simulation result when available).
+ */
+export async function buildCreateDepositTransaction(
+  params: CreateDepositParams,
+): Promise<{ tx: Transaction; expectedGm: bigint | null }> {
+  const sourceAccount = await sorobanRpc.getAccount(params.account)
+  const contract = new Contract(CONTRACTS.exchangeRouter)
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK.networkPassphrase,
+  })
+    .addOperation(
+      contract.call(
+        "createDeposit",
+        xdr.ScVal.scvString(params.market),
+        xdr.ScVal.scvString(params.longTokenAmount.toString()),
+        xdr.ScVal.scvString(params.shortTokenAmount.toString()),
+      ),
+    )
+    .setTimeout(180)
+    .build()
+
+  const simulation = await sorobanRpc.simulateTransaction(tx)
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(`Deposit simulation failed: ${simulation.error}`)
+  }
+
+  let expectedGm: bigint | null = null
+  const retval = simulation.result?.retval
+  if (retval) {
+    try {
+      expectedGm = BigInt(scValToNative(retval) as string | number | bigint)
+    } catch {
+      expectedGm = null
+    }
+  }
+
+  return { tx: rpc.assembleTransaction(tx, simulation).build(), expectedGm }
 }
 
 export async function buildBatchOrderTransaction(

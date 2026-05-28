@@ -25,7 +25,7 @@ const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
   MARKET_CLOSED: "This market is currently closed.",
   ORDER_NOT_FOUND: "Order was not found or has already been executed.",
   POSITION_NOT_FOUND: "Position was not found.",
-  SLIPPAGE_EXCEEDED: "Price moved beyond your slippage limit. Try again.",
+  SLIPPAGE_EXCEEDED: "Order failed because executed price exceeded your slippage tolerance. Increase tolerance or try again.",
   UNAUTHORIZED: "You are not authorized to perform this action.",
   ORDER_EXECUTION_FROZEN: ORDER_EXECUTION_FROZEN_MESSAGE,
 }

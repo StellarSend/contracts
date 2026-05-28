@@ -52,6 +52,10 @@ export function ConfirmationDialog({ open, onClose, tradeState, sizeUsd, entryPr
   const fees = useTradeFees({ sizeUsd, marketAddress: tradeState.marketAddress, isIncrease: true, tradeType: tradeState.tradeType })
   const priceImpactPct = getPriceImpactPct(sizeUsd, fees.priceImpactUsd)
   const estimatedEntryPrice = getEstimatedEntryPrice(entryPrice, priceImpactPct, tradeFlags.isLong)
+  const slippageFactor = tradeState.advanced.slippagePct / 100
+  const acceptablePrice = tradeFlags.isLong
+    ? entryPrice * (1 + slippageFactor)
+    : entryPrice * (1 - slippageFactor)
 
   const { data: feeConfig } = useQuery({
     queryKey: queryKeys.feeConfig("stellar-mainnet", tradeState.marketAddress),
@@ -113,7 +117,7 @@ export function ConfirmationDialog({ open, onClose, tradeState, sizeUsd, entryPr
           collateralAmount: Number(fromAmount),
           sizeDeltaUsd: sizeUsd,
           isLong: tradeFlags.isLong,
-          acceptablePrice: estimatedEntryPrice,
+          acceptablePrice,
           triggerPrice: tradeFlags.isMarket ? undefined : Number(triggerPrice) || estimatedEntryPrice,
           orderType: tradeFlags.isMarket ? "MarketIncrease" : "LimitIncrease",
           leverage,
@@ -191,7 +195,7 @@ export function ConfirmationDialog({ open, onClose, tradeState, sizeUsd, entryPr
           collateralAmount: Number(fromAmount),
           sizeDeltaUsd: sizeUsd,
           isLong: tradeFlags.isLong,
-          acceptablePrice: estimatedEntryPrice,
+          acceptablePrice,
           triggerPrice: tradeFlags.isMarket ? undefined : Number(triggerPrice) || estimatedEntryPrice,
           orderType: tradeFlags.isMarket ? "MarketIncrease" : "LimitIncrease",
           leverage,

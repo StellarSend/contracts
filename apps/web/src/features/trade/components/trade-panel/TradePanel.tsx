@@ -21,6 +21,7 @@ import type { TradeType } from "../../hooks/useTradeState"
 export function TradePanel() {
   const trade = useTradeState()
   const { getMidPrice } = useTokenPrices()
+  const { data: balances } = useTokenBalances()
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   const {
@@ -31,6 +32,7 @@ export function TradePanel() {
     setTradeType, setTradeMode,
     setLeverage,
     setTriggerPrice,
+    advanced,
   } = trade
 
   const entryPrice = getMidPrice(toTokenAddress)
@@ -38,6 +40,17 @@ export function TradePanel() {
   const sizeUsd = tradeFlags.isSwap ? collateralUsd : sizeFromCollateralAndLeverage(collateralUsd, leverage)
 
   const fees = useTradeFees({ sizeUsd, marketAddress, isIncrease: true, tradeType })
+  const walletBalance = balances?.[fromTokenAddress]
+  const xlmBalance = balances?.["XLM"] ?? 0
+  const collateralAmount = Number(fromAmount || "0")
+  const hasCollateralError = walletBalance !== undefined && collateralAmount > walletBalance
+  const hasXlmError = xlmBalance < fees.executionFeeXlm
+  const validationError = hasCollateralError
+    ? `Insufficient ${fromTokenAddress} balance`
+    : hasXlmError
+      ? `Insufficient XLM balance for execution fees (requires ~${fees.executionFeeXlm.toFixed(2)} XLM)`
+      : undefined
+  const canTrade = collateralAmount > 0 && !validationError
 
   const liquidationPrice = useMemo(() => {
     if (!tradeFlags.isPosition || sizeUsd <= 0 || entryPrice <= 0) return 0
@@ -48,8 +61,6 @@ export function TradePanel() {
       isLong: tradeFlags.isLong,
     })
   }, [tradeFlags, sizeUsd, entryPrice, collateralUsd])
-
-  const canTrade = parseFloat(fromAmount || "0") > 0
 
   return (
     <div className="flex flex-col gap-3 p-4">
@@ -85,13 +96,13 @@ export function TradePanel() {
         </div>
 
         <TabsContent value="Long" className="mt-0">
-          <TradeInputs trade={trade} />
+          <TradeInputs trade={trade} validationError={validationError} />
         </TabsContent>
         <TabsContent value="Short" className="mt-0">
-          <TradeInputs trade={trade} />
+          <TradeInputs trade={trade} validationError={validationError} />
         </TabsContent>
         <TabsContent value="Swap" className="mt-0">
-          <TradeInputs trade={trade} />
+          <TradeInputs trade={trade} validationError={validationError} />
         </TabsContent>
       </Tabs>
 
@@ -158,6 +169,42 @@ export function TradePanel() {
         sizeUsd={sizeUsd}
       />
 
+      {/* ── Advanced options ──────────────────────────────────────── */}
+      <div className="rounded-xl border border-border bg-muted/40 p-3 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="font-medium">Advanced options</span>
+          <button
+            type="button"
+            className="text-xs font-medium text-primary hover:text-primary/80"
+            onClick={() => trade.setAdvanced({ advancedDisplay: !advanced.advancedDisplay })}
+          >
+            {advanced.advancedDisplay ? "Hide" : "Show"}
+          </button>
+        </div>
+        {advanced.advancedDisplay && (
+          <div className="mt-3 space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Slippage tolerance</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={advanced.slippagePct}
+                  onChange={(e) => trade.setSlippagePct(Number(e.target.value))}
+                  className="pr-10 font-mono text-sm"
+                />
+                <span className="text-xs text-muted-foreground">%</span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              This sets the maximum allowable slippage for the order. Orders will revert if the fill price exceeds this threshold.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* ── Submit button ─────────────────────────────────────────── */}
       <Button
         className={`mt-1 w-full font-medium ${
@@ -189,7 +236,7 @@ export function TradePanel() {
 
 // ── Pay / Receive inputs ─────────────────────────────────────────────────────
 
-function TradeInputs({ trade }: { trade: ReturnType<typeof useTradeState> }) {
+function TradeInputs({ trade, validationError }: { trade: ReturnType<typeof useTradeState>; validationError?: string }) {
   const { fromAmount, fromTokenAddress, toTokenAddress, tradeFlags, setFromAmount, switchTokens } = trade
   const { getMidPrice } = useTokenPrices()
   const { data: balances } = useTokenBalances()
@@ -230,6 +277,9 @@ function TradeInputs({ trade }: { trade: ReturnType<typeof useTradeState> }) {
         </div>
         {fromUsd > 0 && (
           <p className="text-right text-xs text-muted-foreground">{formatUsd(fromUsd)}</p>
+        )}
+        {validationError && (
+          <p className="text-xs text-red-500">{validationError}</p>
         )}
       </div>
 

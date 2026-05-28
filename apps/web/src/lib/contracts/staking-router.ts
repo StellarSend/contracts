@@ -1,5 +1,8 @@
-import { xdr } from "@stellar/stellar-sdk"
+import { Contract, TransactionBuilder, rpc, xdr } from "@stellar/stellar-sdk"
+import type { Transaction } from "@stellar/stellar-sdk"
 import { CONTRACTS } from "@/app/config/contracts"
+import { NETWORK } from "@/app/config/network"
+import { sorobanRpc } from "@/lib/soroban/client"
 import { i128ToScVal } from "./scval"
 
 export type StakerInfo = {
@@ -60,4 +63,38 @@ export class StakingRouterClient implements StakingRouterBinding {
   private async invoke(_method: string, _args: Array<xdr.ScVal>): Promise<xdr.ScVal> {
     return xdr.ScVal.scvVoid()
   }
+}
+
+async function buildStakingTransaction(
+  account: string,
+  method: "stakeSO4" | "unstakeSO4",
+  amount: bigint,
+): Promise<Transaction> {
+  const sourceAccount = await sorobanRpc.getAccount(account)
+  const contract = new Contract(CONTRACTS.stakingRouter)
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase: NETWORK.networkPassphrase,
+  })
+    .addOperation(contract.call(method, xdr.ScVal.scvString(account), i128ToScVal(amount)))
+    .setTimeout(180)
+    .build()
+
+  const simulation = await sorobanRpc.simulateTransaction(tx)
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(`Transaction simulation failed: ${simulation.error}`)
+  }
+
+  return rpc.assembleTransaction(tx, simulation).build()
+}
+
+/** Build a fee-assembled Soroban transaction calling StakingRouter.stakeSO4. */
+export function buildStakeSO4Transaction(account: string, amount: bigint): Promise<Transaction> {
+  return buildStakingTransaction(account, "stakeSO4", amount)
+}
+
+/** Build a fee-assembled Soroban transaction calling StakingRouter.unstakeSO4. */
+export function buildUnstakeSO4Transaction(account: string, amount: bigint): Promise<Transaction> {
+  return buildStakingTransaction(account, "unstakeSO4", amount)
 }

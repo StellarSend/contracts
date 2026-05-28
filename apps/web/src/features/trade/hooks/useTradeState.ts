@@ -30,6 +30,7 @@ type CollateralsByMarket = Record<string, { long?: string; short?: string }>
 type AdvancedOptions = {
   advancedDisplay: boolean    // show extra fields (slippage, execution fee, etc.)
   limitOrTPSL: boolean        // show TP/SL as part of the order form
+  slippagePct: number         // configured slippage tolerance in percent
 }
 
 export type TradeState = {
@@ -73,13 +74,23 @@ const DEFAULT_STATE: TradeState = {
   leverage: 10,
   triggerPrice: "",
   sidecarOrders: [],
-  advanced: { advancedDisplay: false, limitOrTPSL: false },
+  advanced: { advancedDisplay: false, limitOrTPSL: false, slippagePct: 0.3 },
 }
 
 function loadFromStorage(): TradeState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as TradeState) : DEFAULT_STATE
+    if (!raw) return DEFAULT_STATE
+
+    const parsed = JSON.parse(raw) as Partial<TradeState>
+    return {
+      ...DEFAULT_STATE,
+      ...parsed,
+      advanced: {
+        ...DEFAULT_STATE.advanced,
+        ...(parsed.advanced ?? {}),
+      },
+    }
   } catch {
     return DEFAULT_STATE
   }
@@ -252,6 +263,8 @@ export function useTradeState() {
     setTriggerPrice: (triggerPrice: string) => update({ triggerPrice }),
     setAdvanced: (advanced: Partial<AdvancedOptions>) =>
       update({ advanced: { ...state.advanced, ...advanced } }),
+    setSlippagePct: (slippagePct: number) =>
+      update({ advanced: { ...state.advanced, slippagePct } }),
     switchTokens,
     setActivePosition,
     // Sidecar TP/SL
