@@ -65,15 +65,16 @@ export function ConnectButton({ className, ...props }: ConnectButtonProps) {
   const status = useWalletStore((state) => state.status)
   const isConnecting = status === "connecting"
 
-  if (status === "connected" && address) {
-    return <AccountBadge address={address} className={className as string | undefined} {...props} />
-  }
-
+  // Must be called unconditionally — before any early return
   useKeyboardShortcut({
     key: "k",
     onKeyPress: () => setIsWalletModalOpen(true),
-    enabled: !isConnecting,
+    enabled: !isConnecting && status !== "connected",
   })
+
+  if (status === "connected" && address) {
+    return <AccountBadge address={address} className={className as string | undefined} {...props} />
+  }
 
   return (
     <>

@@ -4,8 +4,10 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite dev --port 3000",
-    "build": "vite build",
+    "dev": "vite dev --port 3000 --mode testnet",
+    "dev:mainnet": "vite dev --port 3000 --mode mainnet",
+    "build": "vite build --mode testnet",
+    "build:mainnet": "vite build --mode mainnet",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

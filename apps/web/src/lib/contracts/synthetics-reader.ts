@@ -38,6 +38,17 @@ export class SyntheticsReaderClient {
     return this.client.getMarket(CONTRACTS.dataStore, marketToken)
   }
 
+  // is_market_disabled lives in DataStore, not the Reader contract.
+  // Return false (all markets enabled) until a DataStore read is wired up.
+  async getMarketInfo(marketToken: string): Promise<{ isDisabled: boolean }> {
+    try {
+      await this.client.getMarket(CONTRACTS.dataStore, marketToken)
+      return { isDisabled: false }
+    } catch {
+      return { isDisabled: false }
+    }
+  }
+
   getMarketPoolValueInfo(marketToken: string, maximize = false): Promise<PoolValueInfo> {
     return this.client.getMarketPoolValueInfo(
       CONTRACTS.dataStore,
