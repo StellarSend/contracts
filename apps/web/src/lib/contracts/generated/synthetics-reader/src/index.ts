@@ -1,9 +1,4 @@
-import { Buffer } from "buffer"
 import { Address, Contract, rpc, xdr } from "@stellar/stellar-sdk"
-
-if (typeof window !== "undefined") {
-  window.Buffer = window.Buffer || Buffer
-}
 
 // ── Return types ─────────────────────────────────────────────────────────────
 // These mirror the Rust #[contracttype] structs returned by the Reader contract.

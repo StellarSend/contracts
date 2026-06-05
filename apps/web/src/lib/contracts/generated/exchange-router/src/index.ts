@@ -1,9 +1,4 @@
-import { Buffer } from "buffer"
 import { Address, Contract, xdr } from "@stellar/stellar-sdk"
-
-if (typeof window !== "undefined") {
-  window.Buffer = window.Buffer || Buffer
-}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,9 +86,10 @@ function enumVal(variantName: string): xdr.ScVal {
  * Falls back to zero-padding if the key is shorter than 32 bytes.
  */
 function orderKeyVal(hex: string): xdr.ScVal {
-  const clean = hex.startsWith("0x") ? hex.slice(2) : hex
-  const buf = Buffer.from(clean.padStart(64, "0"), "hex")
-  return xdr.ScVal.scvBytes(buf)
+  const padded = (hex.startsWith("0x") ? hex.slice(2) : hex).padStart(64, "0")
+  const bytes = new Uint8Array(padded.length / 2)
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(padded.slice(i * 2, i * 2 + 2), 16)
+  return xdr.ScVal.scvBytes(bytes)
 }
 
 // ── Argument builders ────────────────────────────────────────────────────────

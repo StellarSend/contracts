@@ -1,9 +1,4 @@
-import { Buffer } from "buffer"
 import { Contract, rpc, xdr } from "@stellar/stellar-sdk"
-
-if (typeof window !== "undefined") {
-  window.Buffer = window.Buffer || Buffer
-}
 
 export interface CreateDepositParams {
   account: string
