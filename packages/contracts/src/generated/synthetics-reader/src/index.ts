@@ -1,4 +1,4 @@
-import { Address, Contract, rpc, xdr } from "@stellar/stellar-sdk"
+import { Account, Address, Contract, rpc, TransactionBuilder, xdr } from "@stellar/stellar-sdk"
 
 // ── Return types ─────────────────────────────────────────────────────────────
 // These mirror the Rust #[contracttype] structs returned by the Reader contract.
@@ -97,7 +97,7 @@ function decodeI128(v: xdr.ScVal | undefined): bigint {
 
 function fieldVal(m: xdr.ScMapEntry[], name: string): xdr.ScVal | undefined {
   return m.find((e) => {
-    try { return e.key().sym() === name } catch { return false }
+    try { return String(e.key().sym()) === name } catch { return false }
   })?.val()
 }
 
@@ -117,7 +117,13 @@ function decodeBool(v: xdr.ScVal | undefined): boolean {
 }
 
 function decodeEnumVariant(v: xdr.ScVal | undefined): string {
-  // Soroban #[contracttype] unit-enum → single-entry Map {Symbol(name): Void}
+  // Soroban #[contracttype] unit-enum → Vec [Symbol(name)].
+  const vec = decodeVec(v)
+  if (vec.length > 0) {
+    try { return String(vec[0].sym()) } catch { return "" }
+  }
+
+  // Backward-compatible fallback for older local encoders.
   const m = decodeMap(v)
   if (m.length === 0) return ""
   try { return String(m[0].key().sym()) } catch { return "" }
@@ -184,19 +190,30 @@ export interface ClientOptions {
 // arguments (data_store, oracle, order_handler) because it reads from them
 // cross-contract at query time.
 
+const DUMMY_ACCOUNT = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+
 export class Client {
   private contract: Contract
   private rpcUrl: string
+  private networkPassphrase: string
 
   constructor(opts: ClientOptions) {
     this.contract = new Contract(opts.contractId)
     this.rpcUrl = opts.rpcUrl
+    this.networkPassphrase = opts.networkPassphrase
   }
 
   private async sim(method: string, ...args: xdr.ScVal[]): Promise<xdr.ScVal> {
     const server = new rpc.Server(this.rpcUrl)
-    const call = this.contract.call(method, ...args)
-    const result = await server.simulateTransaction(call as any)
+    const account = new Account(DUMMY_ACCOUNT, "0")
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(this.contract.call(method, ...args))
+      .setTimeout(10)
+      .build()
+    const result = await server.simulateTransaction(tx)
     if (rpc.Api.isSimulationError(result)) {
       throw new Error(`Reader simulation error (${method}): ${result.error}`)
     }

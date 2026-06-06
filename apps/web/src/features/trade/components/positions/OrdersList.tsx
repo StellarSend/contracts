@@ -78,7 +78,7 @@ export function OrdersList() {
               <td className="px-4 py-2 font-mono">{formatUsd(o.sizeUsd)}</td>
               <td className="px-4 py-2 font-mono">{formatUsd(o.triggerPrice)}</td>
               <td className="px-4 py-2 text-muted-foreground">
-                {new Date(o.createdAt).toLocaleTimeString()}
+                {new Date(o.updatedAt).toLocaleTimeString()}
               </td>
               <td className="px-4 py-2">
                 <Button

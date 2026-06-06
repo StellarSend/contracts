@@ -14,6 +14,7 @@ export type Position = {
   indexToken: string
   collateralToken: string
   collateralAmount: number
+  collateralUsd: number
   sizeUsd: number
   entryPrice: number
   markPrice: number
@@ -72,6 +73,7 @@ async function fetchPositions(account: string): Promise<Array<Position>> {
         indexToken: market?.indexTokenAddress ?? "",
         collateralToken: props.collateralToken,
         collateralAmount,
+        collateralUsd,
         sizeUsd,
         entryPrice,
         markPrice,

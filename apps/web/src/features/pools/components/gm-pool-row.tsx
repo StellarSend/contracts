@@ -1,9 +1,4 @@
 import { Skeleton } from "@workspace/ui/components/skeleton"
-import { TokenIcon } from "@/shared/components/TokenIcon"
-import { formatPct, formatToken, formatUsd } from "@/shared/lib/format"
-import { formatSorobanAmount } from "@/shared/lib/bignum"
-import { useWalletStore } from "@/features/wallet/store/wallet-store"
-import type { PoolMarketConfig } from "../data/markets"
 import { usePoolRowData } from "../hooks/use-pool-row-data"
 import {
   getComposition,
@@ -13,6 +8,11 @@ import {
 } from "../lib/pool-math"
 import { PoolActions } from "./pool-actions"
 import { PoolCompositionBar } from "./pool-composition-bar"
+import type { PoolMarketConfig } from "../data/markets"
+import { TokenIcon } from "@/shared/components/TokenIcon"
+import { formatPct, formatToken, formatUsd } from "@/shared/lib/format"
+import { formatSorobanAmount } from "@/shared/lib/bignum"
+import { useWalletStore } from "@/features/wallet/store/wallet-store"
 
 type GmPoolRowProps = {
   market: PoolMarketConfig
@@ -88,7 +88,13 @@ export function GmPoolRow({ market, variant }: GmPoolRowProps) {
           </p>
         ) : null}
         <div className="mt-4">
-          <PoolActions hasWallet={!!address && isConnected} hasUserGm={hasUserGm} />
+          <PoolActions
+            hasWallet={!!address && isConnected}
+            hasUserGm={hasUserGm}
+            account={address}
+            market={market}
+            userGmBalance={userGmBalance}
+          />
         </div>
       </article>
     )
@@ -121,7 +127,13 @@ export function GmPoolRow({ market, variant }: GmPoolRowProps) {
         {formatToken(Number(formatSorobanAmount(userGmBalance, 7, 4)), "GM", { decimals: 4 })}
       </td>
       <td className="px-5 py-4 text-right">
-        <PoolActions hasWallet={!!address && isConnected} hasUserGm={hasUserGm} />
+        <PoolActions
+          hasWallet={!!address && isConnected}
+          hasUserGm={hasUserGm}
+          account={address}
+          market={market}
+          userGmBalance={userGmBalance}
+        />
         {hasFailures ? (
           <p className="mt-2 text-right text-[11px] text-yellow-600 dark:text-yellow-400">
             Partial data
