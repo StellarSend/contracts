@@ -5,7 +5,6 @@ import { Input } from "@workspace/ui/components/input"
 import { Slider } from "@workspace/ui/components/slider"
 import { Separator } from "@workspace/ui/components/separator"
 import { Badge } from "@workspace/ui/components/badge"
-import { useTradeState } from "../../hooks/useTradeState"
 import { useTokenPrices } from "../../hooks/useTokenPrices"
 import { useTradeFees } from "../../hooks/useTradeFees"
 import { useTokenBalances } from "../../../wallet/hooks/useTokenBalances"
@@ -18,15 +17,20 @@ import { getToken } from "../../data/tokens"
 import { TradeInfoRows } from "./TradeInfoRows"
 import { ConfirmationDialog } from "./ConfirmationDialog"
 import { ApplyReferralCodePrompt } from "./ApplyReferralCodePrompt"
-import type { TradeType } from "../../hooks/useTradeState"
+import type { TradeType, useTradeState } from "../../hooks/useTradeState"
 import { NumberInput } from "@/shared/components/NumberInput"
 import { useDebounce } from "@/shared/hooks/useDebounce"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
 import { TokenIcon } from "@/shared/components/TokenIcon"
 import { formatAddress } from "@/shared/lib/format"
 
-export function TradePanel() {
-  const trade = useTradeState()
+type TradeController = ReturnType<typeof useTradeState>
+
+type TradePanelProps = {
+  trade: TradeController
+}
+
+export function TradePanel({ trade }: TradePanelProps) {
   const { getMidPrice, isStale } = useTokenPrices()
   const { data: balances } = useTokenBalances()
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -47,12 +51,13 @@ export function TradePanel() {
   const entryPrice = getMidPrice(toTokenAddress)
   const collateralUsd = parseFloat(debouncedFromAmount || "0") * getMidPrice(collateralAddress)
   const sizeUsd = tradeFlags.isSwap ? collateralUsd : sizeFromCollateralAndLeverage(collateralUsd, leverage)
+  const activeInputTokenAddress = tradeFlags.isSwap ? fromTokenAddress : collateralAddress
 
   const fees = useTradeFees({ sizeUsd, marketAddress, isIncrease: true, tradeType })
-  const walletBalance = balances?.[fromTokenAddress]
+  const walletBalance = balances?.[activeInputTokenAddress]
   const xlmBalance = balances?.["XLM"] ?? 0
   const collateralAmount = Number(fromAmount || "0")
-  const fromTokenLabel = formatTokenLabel(fromTokenAddress)
+  const fromTokenLabel = formatTokenLabel(activeInputTokenAddress)
   const toTokenLabel = formatTokenLabel(toTokenAddress)
   const hasCollateralError = walletBalance !== undefined && collateralAmount > walletBalance
   const hasXlmError = xlmBalance < fees.executionFeeXlm
@@ -255,14 +260,15 @@ export function TradePanel() {
 // ── Pay / Receive inputs ─────────────────────────────────────────────────────
 
 function TradeInputs({ trade, validationError }: { trade: ReturnType<typeof useTradeState>; validationError?: string }) {
-  const { fromAmount, fromTokenAddress, toTokenAddress, tradeFlags, setFromAmount, switchTokens } = trade
+  const { fromAmount, fromTokenAddress, toTokenAddress, collateralAddress, tradeFlags, setFromAmount, switchTokens } = trade
   const { getMidPrice } = useTokenPrices()
   const { data: balances } = useTokenBalances()
 
-  const fromPrice = getMidPrice(fromTokenAddress)
+  const activeInputTokenAddress = tradeFlags.isSwap ? fromTokenAddress : collateralAddress
+  const fromPrice = getMidPrice(activeInputTokenAddress)
   const fromUsd = parseFloat(fromAmount || "0") * fromPrice
-  const walletBalance = balances?.[fromTokenAddress]
-  const fromTokenLabel = formatTokenLabel(fromTokenAddress)
+  const walletBalance = balances?.[activeInputTokenAddress]
+  const fromTokenLabel = formatTokenLabel(activeInputTokenAddress)
   const toTokenLabel = formatTokenLabel(toTokenAddress)
 
   return (

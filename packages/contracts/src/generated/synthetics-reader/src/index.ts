@@ -70,6 +70,9 @@ export interface OrderProps {
   updatedAtTime: bigint
 }
 
+/** Mirrors Rust BytesN<32> order keys as hex strings. */
+export type OrderKey = string
+
 // ── ScVal decode helpers ─────────────────────────────────────────────────────
 
 function decodeAddress(v: xdr.ScVal | undefined): string {
@@ -109,6 +112,17 @@ function decodeMap(v: xdr.ScVal | undefined): xdr.ScMapEntry[] {
 function decodeVec(v: xdr.ScVal | undefined): xdr.ScVal[] {
   if (!v) return []
   return v.vec() ?? []
+}
+
+function decodeBytesN(v: xdr.ScVal | undefined): string {
+  if (!v) return ""
+  try {
+    return Array.from(v.bytes() ?? [])
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("")
+  } catch {
+    return ""
+  }
 }
 
 function decodeBool(v: xdr.ScVal | undefined): boolean {
@@ -362,6 +376,26 @@ export class Client {
       xdr.ScVal.scvU32(pageSize),
     )
     return decodeVec(ret).map(decodeOrderProps)
+  }
+
+  /**
+   * get_account_order_keys(data_store, account, start, end)
+   * → Vec<BytesN<32>>
+   */
+  async getAccountOrderKeys(
+    dataStore: string,
+    account: string,
+    start = 0,
+    end = 50,
+  ): Promise<Array<OrderKey>> {
+    const ret = await this.sim(
+      "get_account_order_keys",
+      Client.addr(dataStore),
+      Client.addr(account),
+      xdr.ScVal.scvU32(start),
+      xdr.ScVal.scvU32(end),
+    )
+    return decodeVec(ret).map(decodeBytesN).filter(Boolean)
   }
 }
 
