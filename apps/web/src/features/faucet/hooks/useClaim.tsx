@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import { toast } from "sonner"
 import { useQueryClient } from "@tanstack/react-query"
 import { FAUCET_TOKENS } from "../data/tokens"
@@ -26,29 +26,77 @@ export function useClaim() {
   const queryClient = useQueryClient()
   const [pendingTokens, setPendingTokens] = useState<Set<string>>(new Set())
   const [isBulkPending, setIsBulkPending] = useState(false)
+  const isClaimingRef = useRef(false)
 
-  const claim = useCallback(
-    async (tokenIds: Array<string>) => {
+  const claimOne = useCallback(
+    async (tokenId: string) => {
       if (!address || !isConnected) return
-      if (tokenIds.length === 0) return
+      if (isClaimingRef.current) return
 
-      const isBulk = tokenIds.length === FAUCET_TOKENS.length
+      isClaimingRef.current = true
+      setPendingTokens((prev) => {
+        const next = new Set(prev)
+        next.add(tokenId)
+        return next
+      })
 
-      if (isBulk) {
-        setIsBulkPending(true)
-      } else {
+      const toastId = toast.loading("Claiming test token…")
+
+      try {
+        const faucet = createFaucetClient(address)
+        const tx = await faucet.claim_many({
+          account: address,
+          tokens: [tokenId],
+        })
+
+        const unsignedXdr = tx.toXDR()
+        const { signedTxXdr } = await walletKit.signTransaction(unsignedXdr)
+        const signedXdr = signedTxXdr
+        const { hash } = await sendAndPoll(signedXdr)
+
+        // Refresh balances after a successful claim
+        await queryClient.invalidateQueries({ queryKey: queryKeys.faucet.data(address) })
+
+        toast.success("Test token claimed!", {
+          id: toastId,
+          description: (
+            <a
+              href={explorerTxUrl(hash)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              View transaction →
+            </a>
+          ),
+        })
+      } catch (error) {
+        const message = isClaimTooSoonError(error)
+          ? "Cooldown active — please wait before claiming again."
+          : parseSorobanError(error)
+        toast.error(message, { id: toastId })
+      } finally {
         setPendingTokens((prev) => {
           const next = new Set(prev)
-          for (const id of tokenIds) {
-            next.add(id)
-          }
+          next.delete(tokenId)
           return next
         })
+        isClaimingRef.current = false
       }
+    },
+    [address, isConnected, queryClient],
+  )
 
-      const toastId = toast.loading(
-        tokenIds.length === 1 ? "Claiming test token…" : "Claiming test tokens…",
-      )
+  const claimAll = useCallback(
+    async () => {
+      if (!address || !isConnected) return
+      if (isClaimingRef.current) return
+
+      isClaimingRef.current = true
+      setIsBulkPending(true)
+
+      const tokenIds = FAUCET_TOKENS.map((t) => t.contractId)
+      const toastId = toast.loading("Claiming test tokens…")
 
       try {
         const faucet = createFaucetClient(address)
@@ -84,21 +132,12 @@ export function useClaim() {
           : parseSorobanError(error)
         toast.error(message, { id: toastId })
       } finally {
-        if (isBulk) {
-          setIsBulkPending(false)
-        } else {
-          setPendingTokens((prev) => {
-            const next = new Set(prev)
-            for (const id of tokenIds) {
-              next.delete(id)
-            }
-            return next
-          })
-        }
+        setIsBulkPending(false)
+        isClaimingRef.current = false
       }
     },
     [address, isConnected, queryClient],
   )
 
-  return { claim, pendingTokens, isBulkPending }
+  return { claimOne, claimAll, pendingTokens, isBulkPending }
 }

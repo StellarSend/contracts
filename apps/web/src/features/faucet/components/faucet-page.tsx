@@ -111,7 +111,7 @@ export function FaucetPage() {
   const isConnected = useWalletStore((state) => state.status === "connected")
   const { mismatch } = useNetwork()
   const { data, isLoading } = useFaucetData(address)
-  const { claim, pendingTokens, isBulkPending } = useClaim()
+  const { claimOne, claimAll, pendingTokens, isBulkPending } = useClaim()
 
   const isTestnet = NETWORK.name === "testnet"
   const claimDisabled = !isConnected || mismatch
@@ -155,9 +155,9 @@ export function FaucetPage() {
                   lastClaimLedger={data?.lastClaimLedgers[token.symbol]}
                   cooldownLedgers={data?.cooldownLedgers}
                   isLoading={isLoading}
-                  isPending={pendingTokens.has(token.contractId)}
+                  isPending={pendingTokens.has(token.contractId) || isBulkPending}
                   isDisabled={claimDisabled}
-                  onClaim={(selectedToken) => claim([selectedToken.contractId])}
+                  onClaim={(selectedToken) => claimOne(selectedToken.contractId)}
                 />
               ))}
             </div>
@@ -189,7 +189,7 @@ export function FaucetPage() {
                     variant="default"
                     className="w-full"
                     disabled={claimDisabled || isBulkPending}
-                    onClick={() => claim(FAUCET_TOKENS.map((t) => t.contractId))}
+                    onClick={() => claimAll()}
                   >
                     {isBulkPending ? (
                       <span className="flex items-center gap-2">
