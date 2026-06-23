@@ -1,5 +1,5 @@
-import { fromSorobanAmount } from "@/shared/lib/bignum"
 import type { PoolValueInfo } from "@/lib/contracts"
+import { fromSorobanAmount } from "@/shared/lib/bignum"
 
 export const TOKEN_DECIMALS = 7
 export const USD_DECIMALS = 30

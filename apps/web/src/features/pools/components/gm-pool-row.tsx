@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { usePoolRowData } from "../hooks/use-pool-row-data"
 import {
@@ -19,6 +20,13 @@ import { useWalletStore } from "@/features/wallet/store/wallet-store"
 type GmPoolRowProps = {
   market: PoolMarketConfig
   variant: "desktop" | "mobile"
+  onMetricsChange?: (marketToken: string, metrics: PoolRowMetrics) => void
+}
+
+export type PoolRowMetrics = {
+  tvlUsd: number
+  openInterestUsd: number
+  apy: number | null
 }
 
 function formatCompactUsd(value: number) {
@@ -86,7 +94,7 @@ function PoolIdentity({ market }: { market: PoolMarketConfig }) {
   )
 }
 
-export function GmPoolRow({ market, variant }: GmPoolRowProps) {
+export function GmPoolRow({ market, variant, onMetricsChange }: GmPoolRowProps) {
   const address = useWalletStore((state) => state.address)
   const isConnected = useWalletStore((state) => state.status === "connected")
   const { data, isLoading } = usePoolRowData(market)
@@ -111,6 +119,10 @@ export function GmPoolRow({ market, variant }: GmPoolRowProps) {
   const userGmTitle = formatToken(Number(formatSorobanAmount(userGmBalance, 7, 7)), "GM", {
     decimals: 7,
   })
+
+  useEffect(() => {
+    onMetricsChange?.(market.marketToken, { tvlUsd, openInterestUsd, apy })
+  }, [apy, market.marketToken, onMetricsChange, openInterestUsd, tvlUsd])
 
   if (variant === "mobile") {
     return (
