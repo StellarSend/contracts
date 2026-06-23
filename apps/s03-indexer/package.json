@@ -4,13 +4,14 @@
   "description": "This project can be use as a starting point for developing your new Stellar Soroban Test Network SubQuery project",
   "main": "dist/index.js",
   "scripts": {
-    "build": "subql codegen && subql build",
+    "build": "subql build",
     "codegen": "subql codegen",
-    "start:docker": "docker compose pull && docker compose up --remove-orphans",
-    "dev": "subql codegen && subql build && docker compose pull && docker compose up --remove-orphans",
+    "start": "docker compose pull && docker compose up --remove-orphans",
+    "start:docker": "bun run start",
+    "dev": "bun run codegen && bun run build && bun run start",
     "prepack": "rm -rf dist && bun run build",
     "test": "subql build && subql-node-stellar test",
-    "build:develop": "NODE_ENV=develop subql codegen && NODE_ENV=develop subql build"
+    "build:develop": "NODE_ENV=develop bun run codegen && NODE_ENV=develop bun run build"
   },
   "homepage": "https://github.com/subquery/stellar-subql-starter",
   "repository": "github:subquery/stellar-subql-starter",

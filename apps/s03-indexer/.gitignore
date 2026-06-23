@@ -10,6 +10,7 @@ dist/
 # lock files
 yarn.lock
 package-lock.json
+pnpm-lock.yaml
 
 # Compiled Java class files
 *.class
@@ -23,7 +24,8 @@ package-lock.json
 # Package files
 *.jar
 
-# Generated files
+# SubQuery generated files. Regenerate these with Bun scripts instead of
+# committing template output.
 target/
 dist/
 src/types

@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   postgres:
     build:
@@ -31,6 +29,8 @@ services:
       DB_PORT: 5432
     volumes:
       - ./:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       - ${SUB_COMMAND:-} # set SUB_COMMAND env variable to "test" to run tests
       - -f=/app
