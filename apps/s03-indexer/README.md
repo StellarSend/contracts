@@ -81,6 +81,11 @@ contract deployment, or fixture data. The compose file maps
 `host.docker.internal` to the host gateway so the indexer container can reach a
 host-run standalone node.
 
+Endpoint and chain settings are read while SubQuery generates/builds
+`project.yaml`; after changing `.env`, run `bun run indexer:codegen` and
+`bun run indexer:build` before `bun run indexer:start`. `bun run indexer:dev`
+does all three steps for you.
+
 ## Generated Artifacts
 
 `project.ts`, `schema.graphql`, and the TypeScript mapping sources are the
