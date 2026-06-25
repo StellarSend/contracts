@@ -5,11 +5,6 @@ import { useWalletStore } from "@/features/wallet/store/wallet-store"
 import { NETWORK } from "@/app/config/network"
 import { ThemeProvider } from "@/ui/theme-provider"
 import { ErrorPage } from "@/app/error-page"
-import { validateIndexerConfig } from "@/app/config/indexer"
-import { useIndexerInvalidation } from "@/lib/graphql/use-indexer-invalidation"
-
-// Validate indexer configuration at module load
-validateIndexerConfig()
 
 export type WalletStatus = "disconnected" | "connecting" | "connected" | "error"
 
@@ -34,9 +29,6 @@ export function useWallet(): WalletContextValue {
 export function WalletProvider({ children }: { children: ReactNode }) {
   const { address, status, setConnected, setDisconnected, setStatus } = useWalletStore()
   const mountedRef = useRef(true)
-
-  // Invalidate indexer queries on network or account changes
-  useIndexerInvalidation(address)
 
   useEffect(() => {
     return () => { mountedRef.current = false }

@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
-import { usePositionsWithIndexer } from "../../hooks/usePositionsWithIndexer"
+import { usePositions } from "../../hooks/usePositions"
 import { useFundingRate } from "../../hooks/useFundingRate"
 import { claimFundingFees, createDecreaseOrder } from "../../lib/stellar"
 import { queryKeys } from "../../lib/query-keys"
@@ -49,7 +49,7 @@ function useFundingCountdown(nextEpochTs: number | undefined): string {
 }
 
 export function PositionsList({ onSelectPosition }: Props) {
-  const { data: positions = [], isLoading, isDisabled } = usePositionsWithIndexer()
+  const { data: positions = [], isLoading } = usePositions()
   const { data: fundingRate } = useFundingRate()
   const countdown = useFundingCountdown((fundingRate as any)?.nextEpochTs)
   const account = useWalletStore((state) => state.address)
@@ -125,11 +125,6 @@ export function PositionsList({ onSelectPosition }: Props) {
   if (positions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
-        {isDisabled && (
-          <p className="text-xs text-amber-500 mb-2">
-            ⚠️ Indexer disabled - showing contract-only data
-          </p>
-        )}
         <p className="text-sm font-medium text-foreground/80">No open positions</p>
         <p className="text-xs text-muted-foreground">Start trading to open your first position</p>
         <a href="/trade" className="text-xs text-primary hover:text-primary/80 font-medium mt-2">
@@ -141,11 +136,6 @@ export function PositionsList({ onSelectPosition }: Props) {
 
   return (
     <div className="overflow-x-auto">
-      {isDisabled && (
-        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-500">
-          ⚠️ Indexer disabled - Historical data unavailable. Showing live contract data only.
-        </div>
-      )}
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground">

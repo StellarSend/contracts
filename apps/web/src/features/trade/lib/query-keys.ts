@@ -22,10 +22,6 @@ const keys = {
   positions: (chainId: string, account: string) =>
     ["positions", chainId, account] as const,
 
-  // Fresh position data from contracts (PnL, liquidation price)
-  positionsFresh: (chainId: string, account: string) =>
-    ["positionsFresh", chainId, account] as const,
-
   // User pending orders
   orders: (chainId: string, account: string) =>
     ["orders", chainId, account] as const,
