@@ -2,21 +2,21 @@ import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
 import { useState } from "react"
-import { useOrders } from "../../hooks/useOrders"
+import { useOrdersWithIndexer } from "../../hooks/useOrdersWithIndexer"
 import { cancelOrder } from "../../lib/stellar"
 import { formatUsd } from "../../lib/trade-math"
-import type { Order } from "../../hooks/useOrders"
+import type { OrderWithIndexer } from "../../hooks/useOrdersWithIndexer"
 import type { OrderKey } from "@/lib/contracts"
 
-function toOrderKey(order: Order): OrderKey {
+function toOrderKey(order: OrderWithIndexer): OrderKey {
   return order.key
 }
 
 export function OrdersList() {
-  const { data: orders = [], isLoading } = useOrders()
+  const { data: orders = [], isLoading, isDisabled } = useOrdersWithIndexer()
   const [cancelling, setCancelling] = useState<string | null>(null)
 
-  async function handleCancel(order: Order) {
+  async function handleCancel(order: OrderWithIndexer) {
     setCancelling(order.key)
     try {
       await cancelOrder(order.account, toOrderKey(order))
@@ -36,13 +36,21 @@ export function OrdersList() {
   if (orders.length === 0) {
     return (
       <div className="flex h-24 items-center justify-center text-xs text-muted-foreground">
-        No open orders
+        {isDisabled && (
+          <p className="text-amber-500 mb-1">⚠️ Indexer disabled - showing contract-only data</p>
+        )}
+        {!isDisabled && <p>No open orders</p>}
       </div>
     )
   }
 
   return (
     <div className="overflow-x-auto">
+      {isDisabled && (
+        <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-xs text-amber-500">
+          ⚠️ Indexer disabled - Order history unavailable. Showing live contract data only.
+        </div>
+      )}
       <table className="w-full text-xs">
         <thead>
           <tr className="border-b border-border text-left text-muted-foreground">
