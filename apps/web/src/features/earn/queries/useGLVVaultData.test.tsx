@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { renderHook, waitFor } from "@testing-library/react"
-import type React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { useWalletStore } from "@/features/wallet/store/wallet-store"
 

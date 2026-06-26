@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
-import type React from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { useWalletStore } from "@/features/wallet/store/wallet-store"
 import { useReferralCode } from "./useReferralCode"
+import { useWalletStore } from "@/features/wallet/store/wallet-store"
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
