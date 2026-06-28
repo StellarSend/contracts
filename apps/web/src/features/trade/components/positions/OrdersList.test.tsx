@@ -35,7 +35,10 @@ vi.mock("@/features/trade/lib/stellar", () => ({
   cancelOrder: vi.fn(),
   createIncreaseOrder: vi.fn(),
   createDecreaseOrder: vi.fn(),
+  createSwapOrder: vi.fn(),
   claimFundingFees: vi.fn(),
+  sendBatchOrderTxn: vi.fn(),
+  createSidecarOrder: vi.fn(),
 }))
 
 function createMockOrder(overrides: Record<string, unknown> = {}) {

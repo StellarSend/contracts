@@ -2,9 +2,7 @@ import { useMemo, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
-import { Slider } from "@workspace/ui/components/slider"
 import { Separator } from "@workspace/ui/components/separator"
-import { Badge } from "@workspace/ui/components/badge"
 import { useTokenPrices } from "../../hooks/useTokenPrices"
 import { useTradeFees } from "../../hooks/useTradeFees"
 import { useTokenBalances } from "../../../wallet/hooks/useTokenBalances"
@@ -17,6 +15,7 @@ import { getToken } from "../../data/tokens"
 import { TradeInfoRows } from "./TradeInfoRows"
 import { ConfirmationDialog } from "./ConfirmationDialog"
 import { ApplyReferralCodePrompt } from "./ApplyReferralCodePrompt"
+import { LeverageSlider } from "./LeverageSlider"
 import type { TradeType, useTradeState } from "../../hooks/useTradeState"
 import { NumberInput } from "@/shared/components/NumberInput"
 import { useDebounce } from "@/shared/hooks/useDebounce"
@@ -145,24 +144,7 @@ export function TradePanel({ trade }: TradePanelProps) {
 
       {/* ── Leverage slider (positions only) ─────────────────────── */}
       {tradeFlags.isPosition && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Leverage</span>
-            <Badge variant="secondary">{leverage}×</Badge>
-          </div>
-          <Slider
-            min={1}
-            max={50}
-            step={0.5}
-            value={[leverage]}
-            onValueChange={(v) => setLeverage(Array.isArray(v) ? v[0] : v)}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>1×</span>
-            <span>50×</span>
-          </div>
-        </div>
+        <LeverageSlider value={leverage} onChange={setLeverage} />
       )}
 
       {/* ── Size summary ─────────────────────────────────────────── */}

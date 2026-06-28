@@ -1,11 +1,19 @@
 import "@testing-library/jest-dom/vitest"
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { afterAll, afterEach, beforeAll } from "vitest";
+import { server } from "./test/msw/server";
 
 GlobalRegistrator.register();
 
 // happy-dom defaults to about:blank which makes window.location.origin === "null"
 // This breaks new URL("/", origin) in ConnectButton's WalletModal
 window.location.href = "http://localhost:3000/";
+
+// Start MSW with onUnhandledRequest:"error" so any fetch with no handler
+// fails loudly instead of silently passing through to the real network.
+beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
 
 // Required env vars (vitest config normally injects these via define)
 process.env.VITE_NETWORK = 'testnet';
