@@ -262,4 +262,15 @@ describe("route smoke tests", () => {
       await screen.findByRole("heading", { name: /referrals/i })
     })
   })
+
+  describe("404 Not Found", () => {
+    it("renders the not-found view", async () => {
+      const { Route } = await import("./__root")
+      const NotFound = Route.options.notFoundComponent as React.ComponentType
+      render(<NotFound />, { wrapper: createWrapper() })
+      await screen.findByRole("heading", { name: /404/i })
+      expect(screen.getByText(/Go back home/i)).toBeInTheDocument()
+    })
+  })
 })
+

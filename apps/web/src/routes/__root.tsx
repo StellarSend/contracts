@@ -1,4 +1,4 @@
-import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
+import { HeadContent, Scripts, createRootRoute, Link } from "@tanstack/react-router"
 import { Toaster } from "sonner"
 import appCss from "@workspace/ui/globals.css?url"
 import { AppProviders } from "../app/providers"
@@ -136,6 +136,11 @@ export const Route = createRootRoute({
       <p className="mt-2 text-muted-foreground">
         The requested page could not be found.
       </p>
+      <div className="mt-4">
+        <Link to="/" className="text-primary hover:underline">
+          Go back home
+        </Link>
+      </div>
     </main>
   ),
   shellComponent: RootDocument,

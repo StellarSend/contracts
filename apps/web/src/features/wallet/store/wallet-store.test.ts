@@ -391,8 +391,54 @@ describe("useWalletStore", () => {
       setConnected("GCZXVVCZULC5NZ2V23MZWCABDGVH42DXSBVVMVX34OXQBAWIB7CFZZJ", "freighter")
       expect(getState().network).toBe("testnet")
 
-      setDisconnected()
       expect(getState().network).toBe("testnet")
+    })
+  })
+
+  describe("Persistence", () => {
+    beforeEach(() => {
+      localStorage.clear()
+    })
+
+    it("should rehydrate from valid storage", async () => {
+      localStorage.setItem(
+        "so4-wallet",
+        JSON.stringify({
+          state: {
+            address: "GVALIDADDRESS",
+            network: "testnet",
+            walletId: "freighter",
+          },
+          version: 0,
+        })
+      )
+      
+      await useWalletStore.persist.rehydrate()
+      
+      const state = useWalletStore.getState()
+      expect(state.address).toBe("GVALIDADDRESS")
+      expect(state.network).toBe("testnet")
+      expect(state.walletId).toBe("freighter")
+    })
+
+    it("should fallback to disconnected on missing storage", async () => {
+      localStorage.removeItem("so4-wallet")
+      
+      await useWalletStore.persist.rehydrate()
+      
+      const state = useWalletStore.getState()
+      expect(state.address).toBeNull()
+      expect(state.status).toBe("disconnected")
+    })
+
+    it("should fallback to disconnected on corrupt storage", async () => {
+      localStorage.setItem("so4-wallet", "INVALID_JSON_{{")
+      
+      await useWalletStore.persist.rehydrate()
+      
+      const state = useWalletStore.getState()
+      expect(state.address).toBeNull()
+      expect(state.status).toBe("disconnected")
     })
   })
 })
