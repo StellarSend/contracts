@@ -22,7 +22,14 @@ use crate::{
 
 /// Stand up a fresh environment with a deployed StellarSend contract and a
 /// mock Stellar asset (XLM-style) token.
-fn setup() -> (Env, StellarSendContractClient<'static>, Address, Address, Address, Address) {
+fn setup() -> (
+    Env,
+    StellarSendContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -38,7 +45,14 @@ fn setup() -> (Env, StellarSendContractClient<'static>, Address, Address, Addres
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_address = token_id.address();
 
-    (env, client, admin, fee_collector, token_address, token_admin)
+    (
+        env,
+        client,
+        admin,
+        fee_collector,
+        token_address,
+        token_admin,
+    )
 }
 
 /// Mint `amount` of the mock token to `to`.
@@ -71,10 +85,7 @@ fn test_initialize_already_initialized() {
     client.initialize(&admin, &100u32, &fee_collector);
 
     let result = client.try_initialize(&admin, &100u32, &fee_collector);
-    assert_eq!(
-        result,
-        Err(Ok(StellarSendError::AlreadyInitialized))
-    );
+    assert_eq!(result, Err(Ok(StellarSendError::AlreadyInitialized)));
 }
 
 #[test]
@@ -379,10 +390,17 @@ fn test_subscription_create_and_execute() {
 
     // Payer pre-authorises the contract to pull funds on its behalf.
     let token_client = TokenClient::new(&env, &token);
-    token_client.approve(&payer, &client.address, &10_000i128, &(env.ledger().sequence() + 1_000));
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
 
     let start = env.ledger().timestamp();
-    let id = client.create_subscription(&payer, &recipient, &token, &1_000i128, &600u64, &start);
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
 
     // Due immediately (start_time == now) → executes.
     let net = client.execute_subscription(&id);
@@ -405,11 +423,18 @@ fn test_subscription_execute_before_due_fails() {
     mint(&env, &token, &token_admin, &payer, 10_000);
 
     let token_client = TokenClient::new(&env, &token);
-    token_client.approve(&payer, &client.address, &10_000i128, &(env.ledger().sequence() + 1_000));
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
 
     // start_time far in the future → not due yet.
     let start = env.ledger().timestamp() + 10_000;
-    let id = client.create_subscription(&payer, &recipient, &token, &1_000i128, &600u64, &start);
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
 
     let result = client.try_execute_subscription(&id);
     assert_eq!(result, Err(Ok(StellarSendError::SubscriptionNotDue)));
@@ -425,13 +450,296 @@ fn test_subscription_cancel_then_execute_fails() {
     mint(&env, &token, &token_admin, &payer, 10_000);
 
     let token_client = TokenClient::new(&env, &token);
-    token_client.approve(&payer, &client.address, &10_000i128, &(env.ledger().sequence() + 1_000));
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
 
     let start = env.ledger().timestamp();
-    let id = client.create_subscription(&payer, &recipient, &token, &1_000i128, &600u64, &start);
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
 
     client.cancel_subscription(&id);
 
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
+}
+
+#[test]
+fn test_subscription_invalid_max_executions_zero_rejected() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    // Some(0) could never execute even once — reject at creation rather
+    // than silently creating a dead-on-arrival subscription.
+    let result = client.try_create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &600u64,
+        &start,
+        &Some(0u32),
+        &None,
+    );
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidMaxExecutions)));
+}
+
+#[test]
+fn test_subscription_invalid_expiry_not_after_start_rejected() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let start = env.ledger().timestamp() + 1_000;
+
+    // expiry_time == start_time: the subscription would be created
+    // already-expired, unable to ever run — reject at creation.
+    let result = client.try_create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &600u64,
+        &start,
+        &None,
+        &Some(start),
+    );
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidExpiry)));
+}
+
+#[test]
+fn test_subscription_execute_after_expiry_fails() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 10_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let expiry = start + 500; // expires before the second interval is due
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &interval,
+        &start,
+        &None,
+        &Some(expiry),
+    );
+
+    // First execution is fine: due immediately and not yet expired.
+    client.execute_subscription(&id);
+
+    // Jump to (and past) the *second* interval's due time, which is also
+    // past expiry_time (600 > 500) — this isolates SubscriptionExpired
+    // specifically: the due-time gate alone would allow this call (now >=
+    // next_execution_time), so a SubscriptionNotDue result here would mean
+    // the expiry check isn't actually being enforced.
+    env.ledger().set_timestamp(start + interval);
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionExpired)));
+
+    // Unlike max_executions, hitting expiry does not auto-deactivate —
+    // it stays "active" but perpetually expired, matching how
+    // PaymentRequest.expiry behaves (RequestExpired never auto-cancels).
+    let sub = client.get_subscription(&id);
+    assert!(sub.active);
+}
+
+#[test]
+fn test_subscription_max_executions_auto_deactivates_on_cap() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 10_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &interval,
+        &start,
+        &Some(2u32),
+        &None,
+    );
+
+    // Execution 1 of 2: still active afterwards.
+    client.execute_subscription(&id);
+    assert!(client.get_subscription(&id).active);
+
+    // Advance to the next due time for execution 2 of 2 (max_executions
+    // doesn't change the interval — only how many total executions are
+    // allowed).
+    env.ledger().set_timestamp(start + interval);
+    client.execute_subscription(&id);
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count, 2);
+    assert!(
+        !sub.active,
+        "reaching max_executions must auto-deactivate, same as cancel_subscription"
+    );
+
+    // A 3rd attempt — even though the schedule would otherwise allow it —
+    // now correctly fails the same way a cancelled subscription would.
+    env.ledger().set_timestamp(start + 2 * interval);
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
+
+    assert_eq!(token_client.balance(&recipient), 2_000);
+}
+
+#[test]
+fn test_execute_subscription_rapid_catch_up_multiple_calls() {
+    // Documents exactly how many rapid back-to-back calls succeed for a
+    // known backlog (#23) — the "advance by exactly one interval per call"
+    // design (see the module doc comment) permits catching up every missed
+    // interval in a single burst, and this pins down precisely how many.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector); // 0% fee keeps the arithmetic simple.
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 100_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &interval, &start, &None, &None,
+    );
+
+    // Simulate a keeper that's been offline since creation: "now" jumps
+    // forward by 5 whole intervals without execute_subscription ever being
+    // called in between.
+    let missed_intervals: u64 = 5;
+    env.ledger()
+        .set_timestamp(start + missed_intervals * interval);
+
+    // The due times {start, start+I, start+2I, start+3I, start+4I,
+    // start+5I} are now ALL <= now — six due times, not five, because the
+    // original start-time execution is due *in addition to* the five
+    // subsequent intervals that elapsed. All six succeed as fast,
+    // back-to-back calls with no cooldown between them.
+    let expected_catch_up_calls = missed_intervals + 1;
+    for call_number in 1..=expected_catch_up_calls {
+        let net = client.execute_subscription(&id);
+        assert_eq!(
+            net, 1_000,
+            "catch-up call {call_number} of {expected_catch_up_calls} should still move a full payment"
+        );
+    }
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count as u64, expected_catch_up_calls);
+    assert_eq!(
+        sub.next_execution_time,
+        start + expected_catch_up_calls * interval
+    );
+    assert_eq!(
+        token_client.balance(&recipient),
+        1_000i128 * expected_catch_up_calls as i128
+    );
+
+    // Fully caught up now: next_execution_time is in the future relative
+    // to "now", so a 7th call is correctly refused.
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionNotDue)));
+}
+
+#[test]
+fn test_execute_subscription_max_executions_bounds_catch_up_burst() {
+    // Same backlog as test_execute_subscription_rapid_catch_up_multiple_calls
+    // (six due-times available to catch up), but with max_executions set
+    // below that — proving a capped subscription genuinely limits how much
+    // a catch-up burst can ever move, not just documents it.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 100_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let cap = 3u32;
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &interval,
+        &start,
+        &Some(cap),
+        &None,
+    );
+
+    // Same 5-interval backlog as the uncapped test above — six due-times
+    // would otherwise be claimable in one burst.
+    env.ledger().set_timestamp(start + 5 * interval);
+
+    for _ in 0..cap {
+        client.execute_subscription(&id);
+    }
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count, cap);
+    assert!(!sub.active, "the cap must auto-deactivate the subscription");
+    assert_eq!(token_client.balance(&recipient), 1_000i128 * cap as i128);
+
+    // Backlog still has unclaimed due-times left (next_execution_time is
+    // still <= now), but the cap stops the burst here regardless —
+    // SubscriptionInactive, not SubscriptionNotDue, proving this is the
+    // cap enforcing itself rather than the schedule naturally running out.
+    assert!(sub.next_execution_time <= start + 5 * interval);
     let result = client.try_execute_subscription(&id);
     assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
 }

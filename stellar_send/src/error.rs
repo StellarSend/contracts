@@ -56,4 +56,10 @@ pub enum StellarSendError {
     /// The request restricts payment to a specific payer and the caller
     /// does not match it.
     WrongPayer = 22,
+
+    // -- Subscription caps (#23) -----------------------------------------
+    /// `max_executions` was set to `Some(0)`, which could never execute.
+    InvalidMaxExecutions = 23,
+    /// The subscription's `expiry_time` has passed.
+    SubscriptionExpired = 24,
 }

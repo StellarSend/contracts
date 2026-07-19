@@ -133,7 +133,9 @@
                 },
                 {
                   "u64": 10000
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -305,11 +307,31 @@
                     },
                     {
                       "key": {
+                        "symbol": "executions_count"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "expiry_time"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "interval_seconds"
                       },
                       "val": {
                         "u64": 600
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "max_executions"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -1257,7 +1279,9 @@
                 },
                 {
                   "u64": 10000
-                }
+                },
+                "void",
+                "void"
               ]
             }
           }
@@ -1302,7 +1326,9 @@
                 },
                 {
                   "u64": 10000
-                }
+                },
+                "void",
+                "void"
               ]
             }
           }
