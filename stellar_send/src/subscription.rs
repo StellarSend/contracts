@@ -203,6 +203,10 @@ impl StellarSendContract {
     /// not yet been reached, guarding against double-execution within a
     /// single interval. Fails with `SubscriptionExpired` if `expiry_time`
     /// has passed, checked independently of the normal due-time gate.
+    ///
+    /// On the execution that reaches `max_executions` (if set), the
+    /// subscription is auto-deactivated the same way cancellation does —
+    /// any further call returns `SubscriptionInactive`.
     pub fn execute_subscription(env: Env, id: u64) -> Result<i128, StellarSendError> {
         let mut sub = Self::load_subscription(&env, id)?;
 
@@ -233,10 +237,24 @@ impl StellarSendContract {
 
         // Advance the schedule by exactly one interval (not "now + interval")
         // so a late keeper call doesn't silently drift the cadence forward.
+        // See the module doc comment for why an unbounded catch-up burst
+        // this permits is left as-is and instead bounded by max_executions/
+        // expiry_time rather than changed here.
         sub.next_execution_time = sub
             .next_execution_time
             .checked_add(sub.interval_seconds)
             .ok_or(StellarSendError::ArithmeticOverflow)?;
+
+        sub.executions_count = sub
+            .executions_count
+            .checked_add(1)
+            .ok_or(StellarSendError::ArithmeticOverflow)?;
+        if let Some(max) = sub.max_executions {
+            if sub.executions_count >= max {
+                sub.active = false;
+            }
+        }
+
         env.storage().persistent().set(&(KEY_SUB, id), &sub);
 
         crate::events::emit_subscription_executed(
