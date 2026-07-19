@@ -201,7 +201,8 @@ impl StellarSendContract {
     /// the payer already pre-authorised the token allowance at creation
     /// time.  Fails with `SubscriptionNotDue` if `next_execution_time` has
     /// not yet been reached, guarding against double-execution within a
-    /// single interval.
+    /// single interval. Fails with `SubscriptionExpired` if `expiry_time`
+    /// has passed, checked independently of the normal due-time gate.
     pub fn execute_subscription(env: Env, id: u64) -> Result<i128, StellarSendError> {
         let mut sub = Self::load_subscription(&env, id)?;
 
@@ -212,6 +213,11 @@ impl StellarSendContract {
         let now = env.ledger().timestamp();
         if now < sub.next_execution_time {
             return Err(StellarSendError::SubscriptionNotDue);
+        }
+        if let Some(expiry) = sub.expiry_time {
+            if now > expiry {
+                return Err(StellarSendError::SubscriptionExpired);
+            }
         }
 
         let config = Self::load_config(&env)?;
