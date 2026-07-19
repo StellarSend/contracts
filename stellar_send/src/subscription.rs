@@ -101,12 +101,22 @@ impl StellarSendContract {
     /// first allowed execution (may be in the past to allow immediate
     /// execution, or in the future to delay the first charge).
     ///
+    /// * `max_executions` – Optional hard ceiling on total lifetime
+    ///   executions (`Some(0)` is rejected as invalid — it could never run).
+    ///   `None` means unbounded, same as omitting a cap entirely.
+    /// * `expiry_time` – Optional ledger timestamp past which the
+    ///   subscription can no longer execute, independent of
+    ///   `max_executions`. Must be strictly after `start_time`, since an
+    ///   earlier-or-equal expiry would make the subscription unable to ever
+    ///   execute even once. `None` means no expiry.
+    ///
     /// The payer must separately call `token.approve(payer, <this contract>,
     /// amount * N, expiration_ledger)` on the token contract so that future
     /// `execute_subscription` calls (which run without the payer's live
     /// signature) are authorised to move funds via `transfer_from`.
     ///
     /// Returns the new subscription id.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_subscription(
         env: Env,
         payer: Address,
@@ -115,6 +125,8 @@ impl StellarSendContract {
         amount: i128,
         interval_seconds: u64,
         start_time: u64,
+        max_executions: Option<u32>,
+        expiry_time: Option<u64>,
     ) -> Result<u64, StellarSendError> {
         payer.require_auth();
 
@@ -127,6 +139,14 @@ impl StellarSendContract {
         if payer == recipient {
             return Err(StellarSendError::SelfPaymentNotAllowed);
         }
+        if max_executions == Some(0) {
+            return Err(StellarSendError::InvalidMaxExecutions);
+        }
+        if let Some(expiry) = expiry_time {
+            if expiry <= start_time {
+                return Err(StellarSendError::InvalidExpiry);
+            }
+        }
 
         let id = Self::next_sub_id(&env);
         let sub = Subscription {
@@ -137,12 +157,8 @@ impl StellarSendContract {
             interval_seconds,
             next_execution_time: start_time,
             active: true,
-            // TODO(#23): accept these as create_subscription parameters —
-            // added here first purely so the new Subscription fields have
-            // somewhere to come from; wired up to real caller-supplied
-            // values and validated in the next commit.
-            max_executions: None,
-            expiry_time: None,
+            max_executions,
+            expiry_time,
             executions_count: 0,
         };
 
