@@ -9,6 +9,52 @@
 //! `transfer_from` rather than `transfer`, exactly like a card-network
 //! "pull" recurring charge.
 //!
+//! ## Bounding indefinite subscriptions (#23)
+//!
+//! A subscription with no cap runs forever, which risks becoming a
+//! "forgotten" recurring charge the payer never explicitly agreed to stop.
+//! `create_subscription` accepts two independent, optional bounds:
+//!
+//!   * `max_executions` — a hard ceiling on the total number of successful
+//!     charges over the subscription's lifetime. Reaching it auto-deactivates
+//!     the subscription (`active = false`), the same terminal state
+//!     cancellation produces, so a capped-out subscription surfaces the
+//!     familiar `SubscriptionInactive` on any further call.
+//!   * `expiry_time` — a ledger timestamp past which `execute_subscription`
+//!     refuses to run at all, independent of the execution count. Unlike
+//!     `max_executions`, this does *not* auto-deactivate the subscription
+//!     (matching `PaymentRequest.expiry`'s behaviour): every attempt past
+//!     expiry gets the specific, informative `SubscriptionExpired` rather
+//!     than a generic "inactive" once discovered.
+//!
+//! Both are `None`-able because an unbounded subscription is still a valid,
+//! intentional choice (e.g. an indefinite payroll-style payment) — the payer
+//! opts into a bound rather than having one imposed.
+//!
+//! ## Catch-up bursts are intentionally unchanged
+//!
+//! `execute_subscription` still advances `next_execution_time` by exactly
+//! one `interval_seconds` per call rather than jumping to `now +
+//! interval_seconds` (see the comment at the call site) — this is what
+//! stops a late keeper call from silently drifting the cadence forward, a
+//! real problem this design solves. Its accepted side effect: if a
+//! subscription goes unexecuted for a long stretch, a keeper *can* call
+//! `execute_subscription` back-to-back to "catch up" every missed interval,
+//! each call transferring one full payment.
+//!
+//! We deliberately do not change that here. Disallowing catch-up (skipping
+//! missed intervals instead) trades a burst-of-payments surprise for a
+//! skipped-payment surprise — neither is strictly safer, and the module's
+//! own anti-drift design already reflects a considered choice for the
+//! former. What actually bounds the *damage* of a catch-up burst is
+//! `max_executions`/`expiry_time` above: a subscription with a hard cap has
+//! a hard ceiling on how much a burst can ever move, capped subscription or
+//! not. See `test_execute_subscription_rapid_catch_up_multiple_calls` and
+//! `test_execute_subscription_max_executions_bounds_catch_up_burst` for
+//! what this means concretely. A future issue could still add a per-call
+//! rate limit or a `catch_up: bool` opt-out if product requirements turn
+//! out to want one; nothing here forecloses that.
+//!
 //! Storage
 //! ───────
 //! Instance:
