@@ -133,7 +133,9 @@
                 },
                 {
                   "u64": 0
-                }
+                },
+                "void",
+                "void"
               ]
             }
           },
@@ -308,11 +310,31 @@
                     },
                     {
                       "key": {
+                        "symbol": "executions_count"
+                      },
+                      "val": {
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "expiry_time"
+                      },
+                      "val": "void"
+                    },
+                    {
+                      "key": {
                         "symbol": "interval_seconds"
                       },
                       "val": {
                         "u64": 600
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "max_executions"
+                      },
+                      "val": "void"
                     },
                     {
                       "key": {
@@ -1406,7 +1428,9 @@
                 },
                 {
                   "u64": 0
-                }
+                },
+                "void",
+                "void"
               ]
             }
           }
@@ -1451,7 +1475,9 @@
                 },
                 {
                   "u64": 0
-                }
+                },
+                "void",
+                "void"
               ]
             }
           }
@@ -1735,6 +1761,12 @@
                 },
                 {
                   "u64": 600
+                },
+                {
+                  "u32": 1
+                },
+                {
+                  "bool": true
                 }
               ]
             }
@@ -1833,11 +1865,31 @@
                 },
                 {
                   "key": {
+                    "symbol": "executions_count"
+                  },
+                  "val": {
+                    "u32": 1
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "expiry_time"
+                  },
+                  "val": "void"
+                },
+                {
+                  "key": {
                     "symbol": "interval_seconds"
                   },
                   "val": {
                     "u64": 600
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "max_executions"
+                  },
+                  "val": "void"
                 },
                 {
                   "key": {

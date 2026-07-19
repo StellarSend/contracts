@@ -22,7 +22,14 @@ use crate::{
 
 /// Stand up a fresh environment with a deployed StellarSend contract and a
 /// mock Stellar asset (XLM-style) token.
-fn setup() -> (Env, StellarSendContractClient<'static>, Address, Address, Address, Address) {
+fn setup() -> (
+    Env,
+    StellarSendContractClient<'static>,
+    Address,
+    Address,
+    Address,
+    Address,
+) {
     let env = Env::default();
     env.mock_all_auths();
 
@@ -38,7 +45,14 @@ fn setup() -> (Env, StellarSendContractClient<'static>, Address, Address, Addres
     let token_id = env.register_stellar_asset_contract_v2(token_admin.clone());
     let token_address = token_id.address();
 
-    (env, client, admin, fee_collector, token_address, token_admin)
+    (
+        env,
+        client,
+        admin,
+        fee_collector,
+        token_address,
+        token_admin,
+    )
 }
 
 /// Mint `amount` of the mock token to `to`.
@@ -71,10 +85,7 @@ fn test_initialize_already_initialized() {
     client.initialize(&admin, &100u32, &fee_collector);
 
     let result = client.try_initialize(&admin, &100u32, &fee_collector);
-    assert_eq!(
-        result,
-        Err(Ok(StellarSendError::AlreadyInitialized))
-    );
+    assert_eq!(result, Err(Ok(StellarSendError::AlreadyInitialized)));
 }
 
 #[test]
@@ -379,10 +390,17 @@ fn test_subscription_create_and_execute() {
 
     // Payer pre-authorises the contract to pull funds on its behalf.
     let token_client = TokenClient::new(&env, &token);
-    token_client.approve(&payer, &client.address, &10_000i128, &(env.ledger().sequence() + 1_000));
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
 
     let start = env.ledger().timestamp();
-    let id = client.create_subscription(&payer, &recipient, &token, &1_000i128, &600u64, &start);
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
 
     // Due immediately (start_time == now) → executes.
     let net = client.execute_subscription(&id);
@@ -405,11 +423,18 @@ fn test_subscription_execute_before_due_fails() {
     mint(&env, &token, &token_admin, &payer, 10_000);
 
     let token_client = TokenClient::new(&env, &token);
-    token_client.approve(&payer, &client.address, &10_000i128, &(env.ledger().sequence() + 1_000));
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
 
     // start_time far in the future → not due yet.
     let start = env.ledger().timestamp() + 10_000;
-    let id = client.create_subscription(&payer, &recipient, &token, &1_000i128, &600u64, &start);
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
 
     let result = client.try_execute_subscription(&id);
     assert_eq!(result, Err(Ok(StellarSendError::SubscriptionNotDue)));
@@ -425,10 +450,17 @@ fn test_subscription_cancel_then_execute_fails() {
     mint(&env, &token, &token_admin, &payer, 10_000);
 
     let token_client = TokenClient::new(&env, &token);
-    token_client.approve(&payer, &client.address, &10_000i128, &(env.ledger().sequence() + 1_000));
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
 
     let start = env.ledger().timestamp();
-    let id = client.create_subscription(&payer, &recipient, &token, &1_000i128, &600u64, &start);
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
 
     client.cancel_subscription(&id);
 
