@@ -566,6 +566,62 @@ fn test_subscription_execute_after_expiry_fails() {
     assert!(sub.active);
 }
 
+#[test]
+fn test_subscription_max_executions_auto_deactivates_on_cap() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 10_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &interval,
+        &start,
+        &Some(2u32),
+        &None,
+    );
+
+    // Execution 1 of 2: still active afterwards.
+    client.execute_subscription(&id);
+    assert!(client.get_subscription(&id).active);
+
+    // Advance to the next due time for execution 2 of 2 (max_executions
+    // doesn't change the interval — only how many total executions are
+    // allowed).
+    env.ledger().set_timestamp(start + interval);
+    client.execute_subscription(&id);
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count, 2);
+    assert!(
+        !sub.active,
+        "reaching max_executions must auto-deactivate, same as cancel_subscription"
+    );
+
+    // A 3rd attempt — even though the schedule would otherwise allow it —
+    // now correctly fails the same way a cancelled subscription would.
+    env.ledger().set_timestamp(start + 2 * interval);
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
+
+    assert_eq!(token_client.balance(&recipient), 2_000);
+}
+
 // ---------------------------------------------------------------------------
 // Batch payments
 // ---------------------------------------------------------------------------
