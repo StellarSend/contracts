@@ -622,6 +622,128 @@ fn test_subscription_max_executions_auto_deactivates_on_cap() {
     assert_eq!(token_client.balance(&recipient), 2_000);
 }
 
+#[test]
+fn test_execute_subscription_rapid_catch_up_multiple_calls() {
+    // Documents exactly how many rapid back-to-back calls succeed for a
+    // known backlog (#23) — the "advance by exactly one interval per call"
+    // design (see the module doc comment) permits catching up every missed
+    // interval in a single burst, and this pins down precisely how many.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector); // 0% fee keeps the arithmetic simple.
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 100_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &1_000i128, &interval, &start, &None, &None,
+    );
+
+    // Simulate a keeper that's been offline since creation: "now" jumps
+    // forward by 5 whole intervals without execute_subscription ever being
+    // called in between.
+    let missed_intervals: u64 = 5;
+    env.ledger()
+        .set_timestamp(start + missed_intervals * interval);
+
+    // The due times {start, start+I, start+2I, start+3I, start+4I,
+    // start+5I} are now ALL <= now — six due times, not five, because the
+    // original start-time execution is due *in addition to* the five
+    // subsequent intervals that elapsed. All six succeed as fast,
+    // back-to-back calls with no cooldown between them.
+    let expected_catch_up_calls = missed_intervals + 1;
+    for call_number in 1..=expected_catch_up_calls {
+        let net = client.execute_subscription(&id);
+        assert_eq!(
+            net, 1_000,
+            "catch-up call {call_number} of {expected_catch_up_calls} should still move a full payment"
+        );
+    }
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count as u64, expected_catch_up_calls);
+    assert_eq!(
+        sub.next_execution_time,
+        start + expected_catch_up_calls * interval
+    );
+    assert_eq!(
+        token_client.balance(&recipient),
+        1_000i128 * expected_catch_up_calls as i128
+    );
+
+    // Fully caught up now: next_execution_time is in the future relative
+    // to "now", so a 7th call is correctly refused.
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionNotDue)));
+}
+
+#[test]
+fn test_execute_subscription_max_executions_bounds_catch_up_burst() {
+    // Same backlog as test_execute_subscription_rapid_catch_up_multiple_calls
+    // (six due-times available to catch up), but with max_executions set
+    // below that — proving a capped subscription genuinely limits how much
+    // a catch-up burst can ever move, not just documents it.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 100_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let cap = 3u32;
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &interval,
+        &start,
+        &Some(cap),
+        &None,
+    );
+
+    // Same 5-interval backlog as the uncapped test above — six due-times
+    // would otherwise be claimable in one burst.
+    env.ledger().set_timestamp(start + 5 * interval);
+
+    for _ in 0..cap {
+        client.execute_subscription(&id);
+    }
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count, cap);
+    assert!(!sub.active, "the cap must auto-deactivate the subscription");
+    assert_eq!(token_client.balance(&recipient), 1_000i128 * cap as i128);
+
+    // Backlog still has unclaimed due-times left (next_execution_time is
+    // still <= now), but the cap stops the burst here regardless —
+    // SubscriptionInactive, not SubscriptionNotDue, proving this is the
+    // cap enforcing itself rather than the schedule naturally running out.
+    assert!(sub.next_execution_time <= start + 5 * interval);
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
+}
+
 // ---------------------------------------------------------------------------
 // Batch payments
 // ---------------------------------------------------------------------------
