@@ -81,9 +81,18 @@ pub struct Subscription {
     pub interval_seconds: u64,
     /// Unix timestamp (ledger time) at which the subscription may next run.
     pub next_execution_time: u64,
-    /// False once cancelled by the payer; a cancelled subscription can never
-    /// be re-activated (a new one must be created instead).
+    /// False once cancelled by the payer, or once `max_executions` has been
+    /// reached; either way, a new subscription must be created instead of
+    /// trying to re-activate this one.
     pub active: bool,
+    /// Hard ceiling on total lifetime executions, or `None` for unbounded.
+    /// Reaching this count sets `active = false`.
+    pub max_executions: Option<u32>,
+    /// Ledger timestamp past which `execute_subscription` refuses to run,
+    /// or `None` for no expiry. Checked independently of `max_executions`.
+    pub expiry_time: Option<u64>,
+    /// Count of successful executions so far.
+    pub executions_count: u32,
 }
 
 #[contractimpl]
@@ -128,6 +137,13 @@ impl StellarSendContract {
             interval_seconds,
             next_execution_time: start_time,
             active: true,
+            // TODO(#23): accept these as create_subscription parameters —
+            // added here first purely so the new Subscription fields have
+            // somewhere to come from; wired up to real caller-supplied
+            // values and validated in the next commit.
+            max_executions: None,
+            expiry_time: None,
+            executions_count: 0,
         };
 
         env.storage().persistent().set(&(KEY_SUB, id), &sub);
