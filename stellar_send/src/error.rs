@@ -62,4 +62,16 @@ pub enum StellarSendError {
     InvalidMaxExecutions = 23,
     /// The subscription's `expiry_time` has passed.
     SubscriptionExpired = 24,
+
+    // -- Payment records (#25) --------------------------------------------
+    // Next available discriminant at the time this was added: 23 and 24
+    // were already claimed by #23's merged PR (subscription caps), so this
+    // is 25, not the 23 the issue's own text speculated might still be
+    // free — coordinate here first if adding another variant concurrently.
+    /// `get_payment_record` found no record for the given `(from, seq)`
+    /// key. Distinct from `NotInitialized`: the contract itself is fully
+    /// initialized, this specific record just doesn't exist (wrong
+    /// sequence number, or querying before the transaction that would
+    /// have created it has confirmed).
+    PaymentRecordNotFound = 25,
 }
