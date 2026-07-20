@@ -341,6 +341,15 @@ impl StellarSendContract {
     }
 
     /// Retrieve a stored payment record by sender and sequence number.
+    ///
+    /// Returns `NotInitialized` if the contract itself has never been
+    /// initialized, or `PaymentRecordNotFound` if it has, but no record
+    /// exists for this `(from, seq)` pair — e.g. a wrong sequence number,
+    /// or a caller querying before the transaction that would have
+    /// created the record has confirmed. These used to be conflated: any
+    /// missing record reported `NotInitialized` regardless of whether the
+    /// contract was actually initialized (#25), which is misleading for
+    /// an integrator branching on the error to decide how to recover.
     pub fn get_payment_record(
         env: Env,
         from: Address,
