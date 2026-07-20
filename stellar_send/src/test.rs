@@ -336,6 +336,19 @@ fn test_get_payment_record() {
 }
 
 #[test]
+fn test_get_payment_record_not_found() {
+    let (env, client, admin, fee_collector, _token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    // Contract is initialized, but no payment has ever been recorded for
+    // this sender/sequence pair — must be reported as PaymentRecordNotFound,
+    // not conflated with an uninitialized contract.
+    let missing_sender = Address::generate(&env);
+    let result = client.try_get_payment_record(&missing_sender, &1u64);
+    assert_eq!(result, Err(Ok(StellarSendError::PaymentRecordNotFound)));
+}
+
+#[test]
 fn test_unauthorized_send_rejected() {
     // Verify that send_payment correctly requires the sender's authorisation.
     // We mock only the attacker's auth (not the victim's) and confirm that
