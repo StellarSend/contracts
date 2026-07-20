@@ -350,6 +350,9 @@ Return current configuration.
 #### `get_payment_record(from, seq) → Result<PaymentRecord, StellarSendError>`
 
 Retrieve a stored payment record by sender address and sequence number.
+Returns `NotInitialized` if the contract itself has never been
+initialized, or `PaymentRecordNotFound` if it has, but no record exists
+for the given `(from, seq)` pair.
 
 ---
 
