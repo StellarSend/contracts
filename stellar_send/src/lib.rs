@@ -352,7 +352,7 @@ impl StellarSendContract {
         env.storage()
             .persistent()
             .get(&key)
-            .ok_or(StellarSendError::NotInitialized)
+            .ok_or(StellarSendError::PaymentRecordNotFound)
     }
 
     // -----------------------------------------------------------------------
