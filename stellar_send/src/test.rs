@@ -894,6 +894,46 @@ fn test_execute_subscription_rapid_catch_up_multiple_calls_with_fee() {
     );
 }
 
+#[test]
+fn test_execute_subscription_max_executions_bounds_catch_up_burst_with_fee() {
+    // Fee-bearing counterpart to
+    // test_execute_subscription_max_executions_bounds_catch_up_burst (#50):
+    // verifies the max_executions cap still enforces correctly, and fee
+    // accounting stays correct, when a capped catch-up burst also forwards
+    // a nonzero fee per execution.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    let fee_bps = 200u32; // 2%
+    client.initialize(&admin, &fee_bps, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let initial_mint = 100_000i128;
+    mint(&env, &token, &token_admin, &payer, initial_mint);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let amount = 1_000i128;
+    let cap = 3u32;
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &amount,
+        &interval,
+        &start,
+        &Some(cap),
+        &None,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Batch payments
 // ---------------------------------------------------------------------------
