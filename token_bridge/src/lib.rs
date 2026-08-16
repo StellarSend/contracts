@@ -26,6 +26,8 @@ use soroban_sdk::{
     contract, contractimpl, symbol_short, token, Address, Env, Symbol,
 };
 
+mod reentrancy;
+
 // ---------------------------------------------------------------------------
 // Storage keys
 // ---------------------------------------------------------------------------
@@ -98,6 +100,7 @@ impl TokenBridgeContract {
     /// as a transferable SEP-41 asset should deploy a dedicated SAC and call
     /// this contract as its admin.
     pub fn wrap(env: Env, from: Address, amount: i128) -> Result<i128, TokenBridgeError> {
+        let _guard = crate::reentrancy::ReentrancyGuard::new(&env);
         from.require_auth();
         Self::assert_initialized(&env)?;
 
@@ -111,12 +114,12 @@ impl TokenBridgeContract {
             .get(&KEY_UNDER)
             .ok_or(TokenBridgeError::NotInitialized)?;
 
+        // Credit wrapped balance.
+        let new_bal = Self::credit_wrapped(&env, &from, amount)?;
+
         // Pull underlying tokens into this contract.
         let token_client = token::Client::new(&env, &underlying);
         token_client.transfer(&from, &env.current_contract_address(), &amount);
-
-        // Credit wrapped balance.
-        let new_bal = Self::credit_wrapped(&env, &from, amount)?;
 
         // Emit Wrapped event.
         env.events().publish(
@@ -132,6 +135,7 @@ impl TokenBridgeContract {
     /// 1. Debits `amount` from `from`'s wrapped balance.
     /// 2. Transfers `amount` of underlying tokens from this contract to `from`.
     pub fn unwrap(env: Env, from: Address, amount: i128) -> Result<i128, TokenBridgeError> {
+        let _guard = crate::reentrancy::ReentrancyGuard::new(&env);
         from.require_auth();
         Self::assert_initialized(&env)?;
 

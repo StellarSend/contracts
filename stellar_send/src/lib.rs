@@ -26,6 +26,7 @@ mod batch;
 mod error;
 mod events;
 mod payment_request;
+mod reentrancy;
 mod subscription;
 
 pub use error::StellarSendError;
@@ -210,17 +211,6 @@ impl StellarSendContract {
         // Calculate fee and net amounts.
         let (fee_amount, net_amount) = Self::split_fee(amount, config.fee_bps)?;
 
-        // Obtain a token client.
-        let token_client = token::Client::new(&env, &token);
-
-        // Transfer fee to the fee-collector contract.
-        if fee_amount > 0 {
-            token_client.transfer(&from, &config.fee_collector, &fee_amount);
-        }
-
-        // Transfer net amount to the recipient.
-        token_client.transfer(&from, &to, &net_amount);
-
         // Build and store the payment record.
         let seq = Self::next_seq(&env, &from);
         let record = PaymentRecord {
@@ -236,6 +226,17 @@ impl StellarSendContract {
         // Key: (from_address, sequence_number)
         let key = (from.clone(), seq);
         env.storage().persistent().set(&key, &record);
+
+        // Obtain a token client.
+        let token_client = token::Client::new(&env, &token);
+
+        // Transfer fee to the fee-collector contract.
+        if fee_amount > 0 {
+            token_client.transfer(&from, &config.fee_collector, &fee_amount);
+        }
+
+        // Transfer net amount to the recipient.
+        token_client.transfer(&from, &to, &net_amount);
 
         // Emit event.
         events::emit_payment_sent(&env, &from, &to, &token, net_amount, fee_amount, &memo);
@@ -278,13 +279,6 @@ impl StellarSendContract {
 
         let (fee_amount, net_send_amount) = Self::split_fee(send_amount, config.fee_bps)?;
 
-        let send_token_client = token::Client::new(&env, &send_token);
-
-        // Collect fee in the send token first.
-        if fee_amount > 0 {
-            send_token_client.transfer(&from, &config.fee_collector, &fee_amount);
-        }
-
         // Build the full token path for the DEX: send_token → [path…] → dest_token
         let mut full_path: Vec<Address> = vec![&env, send_token.clone()];
         for hop in path.iter() {
@@ -311,14 +305,6 @@ impl StellarSendContract {
             return Err(StellarSendError::SlippageExceeded);
         }
 
-        // Transfer send tokens from sender to this contract (as swap intermediary).
-        send_token_client.transfer(&from, &env.current_contract_address(), &net_send_amount);
-
-        // Transfer destination tokens from this contract to recipient.
-        // (In a real integration the DEX swap populates this contract's balance.)
-        let dest_token_client = token::Client::new(&env, &dest_token);
-        dest_token_client.transfer(&env.current_contract_address(), &to, &simulated_dest_amount);
-
         // Store record.
         let seq = Self::next_seq(&env, &from);
         let key = (from.clone(), seq);
@@ -332,6 +318,21 @@ impl StellarSendContract {
             ledger: env.ledger().sequence(),
         };
         env.storage().persistent().set(&key, &record);
+
+        let send_token_client = token::Client::new(&env, &send_token);
+
+        // Collect fee in the send token first.
+        if fee_amount > 0 {
+            send_token_client.transfer(&from, &config.fee_collector, &fee_amount);
+        }
+
+        // Transfer send tokens from sender to this contract (as swap intermediary).
+        send_token_client.transfer(&from, &env.current_contract_address(), &net_send_amount);
+
+        // Transfer destination tokens from this contract to recipient.
+        // (In a real integration the DEX swap populates this contract's balance.)
+        let dest_token_client = token::Client::new(&env, &dest_token);
+        dest_token_client.transfer(&env.current_contract_address(), &to, &simulated_dest_amount);
 
         events::emit_path_payment_sent(
             &env,
