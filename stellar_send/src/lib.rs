@@ -15,10 +15,10 @@
 //! ──────────────
 //! Instance storage (short-lived, cheap):
 //!   KEY_CONFIG  → ContractConfig
-//!   KEY_SEQ     → u64  (global payment sequence counter)
 //!
 //! Persistent storage (survives ledger closings):
-//!   (from, seq) → PaymentRecord
+//!   (KEY_SEQ, from) → u64  (per-sender payment sequence counter)
+//!   (from, seq)     → PaymentRecord
 
 #![no_std]
 
@@ -144,7 +144,6 @@ impl StellarSendContract {
         };
 
         env.storage().instance().set(&KEY_CONFIG, &config);
-        env.storage().instance().set(&KEY_SEQ, &0u64);
 
         Ok(())
     }
@@ -223,7 +222,7 @@ impl StellarSendContract {
         token_client.transfer(&from, &to, &net_amount);
 
         // Build and store the payment record.
-        let seq = Self::next_seq(&env);
+        let seq = Self::next_seq(&env, &from);
         let record = PaymentRecord {
             from: from.clone(),
             to: to.clone(),
@@ -321,7 +320,7 @@ impl StellarSendContract {
         dest_token_client.transfer(&env.current_contract_address(), &to, &simulated_dest_amount);
 
         // Store record.
-        let seq = Self::next_seq(&env);
+        let seq = Self::next_seq(&env, &from);
         let key = (from.clone(), seq);
         let record = PaymentRecord {
             from: from.clone(),
@@ -348,16 +347,31 @@ impl StellarSendContract {
         Ok(simulated_dest_amount)
     }
 
-    /// Retrieve a stored payment record by sender and sequence number.
+    /// Return the total number of payments (current sequence count) sent by `from`.
+    ///
+    /// Sequence numbers for `from` start at 1 for their first payment and increment
+    /// contiguously up to `get_sequence(from)`.
+    pub fn get_sequence(env: Env, from: Address) -> Result<u64, StellarSendError> {
+        Self::load_config(&env)?;
+
+        let key = (KEY_SEQ, from);
+        let seq: u64 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(0u64);
+        Ok(seq)
+    }
+
+    /// Retrieve a stored payment record by sender and per-sender sequence number.
+    ///
+    /// Payment sequence numbers start at 1 for each sender's first payment and
+    /// increment contiguously with each payment sent by that `from` address.
     ///
     /// Returns `NotInitialized` if the contract itself has never been
     /// initialized, or `PaymentRecordNotFound` if it has, but no record
-    /// exists for this `(from, seq)` pair — e.g. a wrong sequence number,
-    /// or a caller querying before the transaction that would have
-    /// created the record has confirmed. These used to be conflated: any
-    /// missing record reported `NotInitialized` regardless of whether the
-    /// contract was actually initialized (#25), which is misleading for
-    /// an integrator branching on the error to decide how to recover.
+    /// exists for this `(from, seq)` pair — e.g. a sequence number beyond
+    /// the sender's current sequence count (`get_sequence`).
     pub fn get_payment_record(
         env: Env,
         from: Address,
@@ -384,15 +398,16 @@ impl StellarSendContract {
             .ok_or(StellarSendError::NotInitialized)
     }
 
-    /// Increment and return the global payment sequence counter.
-    fn next_seq(env: &Env) -> u64 {
+    /// Increment and return the per-sender payment sequence counter.
+    fn next_seq(env: &Env, from: &Address) -> u64 {
+        let key = (KEY_SEQ, from.clone());
         let seq: u64 = env
             .storage()
-            .instance()
-            .get(&KEY_SEQ)
+            .persistent()
+            .get(&key)
             .unwrap_or(0u64);
         let next = seq.wrapping_add(1);
-        env.storage().instance().set(&KEY_SEQ, &next);
+        env.storage().persistent().set(&key, &next);
         next
     }
 

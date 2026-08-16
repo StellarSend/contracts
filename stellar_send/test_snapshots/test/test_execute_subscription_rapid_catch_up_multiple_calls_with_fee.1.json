@@ -448,14 +448,6 @@
                       },
                       {
                         "key": {
-                          "symbol": "SEQ"
-                        },
-                        "val": {
-                          "u64": 0
-                        }
-                      },
-                      {
-                        "key": {
                           "symbol": "SUBSEQ"
                         },
                         "val": {
