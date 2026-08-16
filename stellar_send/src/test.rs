@@ -864,6 +864,14 @@ fn test_execute_subscription_rapid_catch_up_multiple_calls_with_fee() {
 
     let expected_fee_per_execution = amount * fee_bps as i128 / 10_000i128; // 20
     let expected_net_per_execution = amount - expected_fee_per_execution; // 980
+
+    for call_number in 1..=expected_catch_up_calls {
+        let net = client.execute_subscription(&id);
+        assert_eq!(
+            net, expected_net_per_execution,
+            "catch-up call {call_number} of {expected_catch_up_calls} should forward the fee-adjusted net amount"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
