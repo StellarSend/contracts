@@ -854,6 +854,16 @@ fn test_execute_subscription_rapid_catch_up_multiple_calls_with_fee() {
     let id = client.create_subscription(
         &payer, &recipient, &token, &amount, &interval, &start, &None, &None,
     );
+
+    // Same 5-interval backlog as the 0%-fee version above: six due-times
+    // (start plus five subsequent intervals) all claimable in one burst.
+    let missed_intervals: u64 = 5;
+    env.ledger()
+        .set_timestamp(start + missed_intervals * interval);
+    let expected_catch_up_calls = missed_intervals + 1;
+
+    let expected_fee_per_execution = amount * fee_bps as i128 / 10_000i128; // 20
+    let expected_net_per_execution = amount - expected_fee_per_execution; // 980
 }
 
 // ---------------------------------------------------------------------------
