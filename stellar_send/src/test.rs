@@ -13,7 +13,7 @@ use soroban_sdk::{
 
 use crate::{
     ContractConfig, PaymentRequestStatus, StellarSendContract, StellarSendContractClient,
-    StellarSendError,
+    StellarSendError, MAX_FEE_BPS,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,8 +92,32 @@ fn test_initialize_already_initialized() {
 fn test_initialize_invalid_fee_bps() {
     let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
 
-    // 10_001 bps > 100 % — must be rejected.
-    let result = client.try_initialize(&admin, &10_001u32, &fee_collector);
+    // One above the ceiling — must be rejected.
+    let result = client.try_initialize(&admin, &(MAX_FEE_BPS + 1), &fee_collector);
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
+}
+
+#[test]
+fn test_initialize_accepts_max_fee_boundary() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector);
+
+    let config: ContractConfig = client.get_config();
+    assert_eq!(config.fee_bps, MAX_FEE_BPS);
+}
+
+/// Regression test for the vulnerability this ceiling closes: prior to
+/// introducing `MAX_FEE_BPS`, `initialize` accepted `fee_bps: 10_000`
+/// (100%) — meaning every subsequent payment's net amount would have been
+/// zero, with the full gross amount routed to `fee_collector`. This must
+/// now be rejected outright at initialization, before any payment can ever
+/// be processed under that fee.
+#[test]
+fn test_initialize_rejects_100_percent_fee() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+
+    let result = client.try_initialize(&admin, &10_000u32, &fee_collector);
     assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
 }
 
@@ -232,8 +256,38 @@ fn test_set_fee_invalid_bps() {
     let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
     client.initialize(&admin, &100u32, &fee_collector);
 
-    let result = client.try_set_fee(&10_001u32);
+    let result = client.try_set_fee(&(MAX_FEE_BPS + 1));
     assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
+}
+
+#[test]
+fn test_set_fee_accepts_max_fee_boundary() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+    client.initialize(&admin, &100u32, &fee_collector);
+
+    client.set_fee(&MAX_FEE_BPS);
+    let config = client.get_config();
+    assert_eq!(config.fee_bps, MAX_FEE_BPS);
+}
+
+/// Regression test for the vulnerability this ceiling closes: prior to
+/// introducing `MAX_FEE_BPS`, a single admin key could call
+/// `set_fee(10_000)` (100%) at any time and instantly zero out the net
+/// amount of every subsequent payment, batch leg, payment-request
+/// fulfillment, and subscription execution — draining the full gross
+/// amount to `fee_collector` with no timelock or warning. This must now be
+/// rejected outright.
+#[test]
+fn test_set_fee_rejects_100_percent_fee() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+    client.initialize(&admin, &100u32, &fee_collector);
+
+    let result = client.try_set_fee(&10_000u32);
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
+
+    // The fee must remain unchanged after the rejected attempt.
+    let config = client.get_config();
+    assert_eq!(config.fee_bps, 100u32);
 }
 
 #[test]

@@ -312,7 +312,7 @@ Same steps as testnet; update `STELLAR_NETWORK=mainnet` and `STELLAR_RPC_URL=htt
 
 Initialise the contract. Must be called exactly once by `admin`.
 
-- `fee_bps`: Protocol fee in basis points. Range: `0..=10_000`.
+- `fee_bps`: Protocol fee in basis points. Range: `0..=MAX_FEE_BPS` (currently 1,000, i.e. 10% max).
 - `fee_collector`: Address of the deployed `fee_collector` contract.
 
 #### `send_payment(from, to, token, amount, memo) → Result<PaymentRecord, StellarSendError>`
