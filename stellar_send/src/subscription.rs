@@ -208,6 +208,7 @@ impl StellarSendContract {
     /// subscription is auto-deactivated the same way cancellation does —
     /// any further call returns `SubscriptionInactive`.
     pub fn execute_subscription(env: Env, id: u64) -> Result<i128, StellarSendError> {
+        let _guard = crate::reentrancy::ReentrancyGuard::new(&env);
         let mut sub = Self::load_subscription(&env, id)?;
 
         if !sub.active {
@@ -226,14 +227,6 @@ impl StellarSendContract {
 
         let config = Self::load_config(&env)?;
         let (fee_amount, net_amount) = Self::split_fee(sub.amount, config.fee_bps)?;
-
-        let token_client = token::Client::new(&env, &sub.token);
-        let spender = env.current_contract_address();
-
-        if fee_amount > 0 {
-            token_client.transfer_from(&spender, &sub.payer, &config.fee_collector, &fee_amount);
-        }
-        token_client.transfer_from(&spender, &sub.payer, &sub.recipient, &net_amount);
 
         // Advance the schedule by exactly one interval (not "now + interval")
         // so a late keeper call doesn't silently drift the cadence forward.
@@ -256,6 +249,14 @@ impl StellarSendContract {
         }
 
         env.storage().persistent().set(&(KEY_SUB, id), &sub);
+
+        let token_client = token::Client::new(&env, &sub.token);
+        let spender = env.current_contract_address();
+
+        if fee_amount > 0 {
+            token_client.transfer_from(&spender, &sub.payer, &config.fee_collector, &fee_amount);
+        }
+        token_client.transfer_from(&spender, &sub.payer, &sub.recipient, &net_amount);
 
         crate::events::emit_subscription_executed(
             &env,

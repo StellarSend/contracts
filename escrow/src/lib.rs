@@ -36,6 +36,7 @@
 
 mod error;
 mod events;
+mod reentrancy;
 
 pub use error::EscrowError;
 
@@ -129,6 +130,7 @@ impl EscrowContract {
     ///   beneficiary (only once `unlock_time` has passed) or the arbiter
     ///   (at any time).
     pub fn release_escrow(env: Env, escrow_id: u64, caller: Address) -> Result<(), EscrowError> {
+        let _guard = crate::reentrancy::ReentrancyGuard::new(&env);
         caller.require_auth();
 
         let mut escrow = Self::load(&env, escrow_id)?;
@@ -145,11 +147,11 @@ impl EscrowContract {
             return Err(EscrowError::Unauthorized);
         }
 
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(&env.current_contract_address(), &escrow.beneficiary, &escrow.amount);
-
         escrow.status = EscrowStatus::Released;
         env.storage().persistent().set(&(KEY_ESCROW, escrow_id), &escrow);
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &escrow.beneficiary, &escrow.amount);
 
         events::emit_escrow_released(&env, escrow_id, &escrow.beneficiary, escrow.amount, &caller);
         Ok(())
@@ -162,6 +164,7 @@ impl EscrowContract {
     ///   self-refund once `unlock_time + REFUND_GRACE_SECONDS` has passed
     ///   (see module docs for the anti-griefing rationale).
     pub fn refund_escrow(env: Env, escrow_id: u64, caller: Address) -> Result<(), EscrowError> {
+        let _guard = crate::reentrancy::ReentrancyGuard::new(&env);
         caller.require_auth();
 
         let mut escrow = Self::load(&env, escrow_id)?;
@@ -183,11 +186,11 @@ impl EscrowContract {
             }
         }
 
-        let token_client = token::Client::new(&env, &escrow.token);
-        token_client.transfer(&env.current_contract_address(), &escrow.depositor, &escrow.amount);
-
         escrow.status = EscrowStatus::Refunded;
         env.storage().persistent().set(&(KEY_ESCROW, escrow_id), &escrow);
+
+        let token_client = token::Client::new(&env, &escrow.token);
+        token_client.transfer(&env.current_contract_address(), &escrow.depositor, &escrow.amount);
 
         events::emit_escrow_refunded(&env, escrow_id, &escrow.depositor, escrow.amount, &caller);
         Ok(())

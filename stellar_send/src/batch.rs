@@ -48,18 +48,13 @@ impl StellarSendContract {
             }
         }
 
-        let token_client = token::Client::new(&env, &token);
         let mut records: Vec<PaymentRecord> = Vec::new(&env);
         let mut total_net: i128 = 0;
         let mut total_fee: i128 = 0;
 
+        // Pass 1: Build records and save to storage
         for (recipient, amount) in payments.iter() {
             let (fee_amount, net_amount) = Self::split_fee(amount, config.fee_bps)?;
-
-            if fee_amount > 0 {
-                token_client.transfer(&from, &config.fee_collector, &fee_amount);
-            }
-            token_client.transfer(&from, &recipient, &net_amount);
 
             let seq = Self::next_seq(&env);
             let record = PaymentRecord {
@@ -73,8 +68,6 @@ impl StellarSendContract {
             };
             env.storage().persistent().set(&(from.clone(), seq), &record);
 
-            crate::events::emit_batch_leg_sent(&env, &from, &recipient, &token, net_amount, fee_amount);
-
             total_net = total_net
                 .checked_add(net_amount)
                 .ok_or(StellarSendError::ArithmeticOverflow)?;
@@ -83,6 +76,18 @@ impl StellarSendContract {
                 .ok_or(StellarSendError::ArithmeticOverflow)?;
 
             records.push_back(record);
+        }
+
+        let token_client = token::Client::new(&env, &token);
+
+        // Pass 2: Execute transfers and emit events
+        for record in records.iter() {
+            if record.fee_amount > 0 {
+                token_client.transfer(&from, &config.fee_collector, &record.fee_amount);
+            }
+            token_client.transfer(&from, &record.to, &record.net_amount);
+
+            crate::events::emit_batch_leg_sent(&env, &from, &record.to, &token, record.net_amount, record.fee_amount);
         }
 
         crate::events::emit_batch_payment_completed(

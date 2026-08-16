@@ -119,14 +119,14 @@ impl StellarSendContract {
         let config = Self::load_config(&env)?;
         let (fee_amount, net_amount) = Self::split_fee(request.amount, config.fee_bps)?;
 
+        request.status = PaymentRequestStatus::Fulfilled;
+        env.storage().persistent().set(&(KEY_REQ, request_id), &request);
+
         let token_client = token::Client::new(&env, &request.token);
         if fee_amount > 0 {
             token_client.transfer(&payer, &config.fee_collector, &fee_amount);
         }
         token_client.transfer(&payer, &request.requester, &net_amount);
-
-        request.status = PaymentRequestStatus::Fulfilled;
-        env.storage().persistent().set(&(KEY_REQ, request_id), &request);
 
         crate::events::emit_payment_request_fulfilled(
             &env,
