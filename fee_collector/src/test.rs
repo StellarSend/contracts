@@ -109,6 +109,68 @@ fn test_withdraw_sends_tokens_to_recipient() {
     assert_eq!(token_client.balance(&contract_id), 100);
 }
 
+/// Demonstrates the reconciliation mechanism introduced by issue #41.
+///
+/// Scenario:
+///   1. 300 tokens are minted to the contract and `collect_fee` is called.
+///   2. 200 tokens are withdrawn to a recipient.
+///
+/// Before the fix there was no on-chain way to reconstruct "300 collected,
+/// 200 withdrawn, 100 should remain" without replaying off-chain events.
+/// After the fix, `get_total_withdrawn` and `get_expected_balance` surface the
+/// full picture on-chain, and `get_expected_balance == get_balance` confirms no
+/// drift for this benign scenario.
+///
+/// A second phase deliberately introduces drift by calling `collect_fee` with
+/// an `amount` (50) that is larger than the tokens actually transferred (30),
+/// simulating a caller-side rounding bug.  In that case
+/// `get_expected_balance > get_balance`, exposing the discrepancy.
+#[test]
+fn test_reconciliation_detects_divergence() {
+    let (env, client, admin, treasury, token, token_admin) = setup();
+    client.initialize(&admin, &treasury);
+
+    let contract_id = client.address.clone();
+
+    // ── Phase 1: normal collect + withdraw ──────────────────────────────────
+    mint(&env, &token, &token_admin, &contract_id, 300);
+    client.collect_fee(&token, &300i128);
+
+    let recipient = Address::generate(&env);
+    client.withdraw(&token, &200i128, &recipient);
+
+    // Counters:
+    //   total_collected  = 300
+    //   total_withdrawn  = 200
+    //   expected_balance = 100   (== actual balance → no drift)
+    assert_eq!(client.get_total_collected(&token), 300);
+    assert_eq!(client.get_total_withdrawn(&token), 200);
+    assert_eq!(client.get_expected_balance(&token), 100);
+    assert_eq!(client.get_balance(&token), 100);
+
+    // No drift yet: expected == actual.
+    assert_eq!(client.get_expected_balance(&token), client.get_balance(&token));
+
+    // ── Phase 2: caller over-reports the collected amount (simulates a ───────
+    //            rounding bug: only 30 tokens arrive but 50 are reported)
+    mint(&env, &token, &token_admin, &contract_id, 30); // only 30 actually transferred
+    client.collect_fee(&token, &50i128); // caller reports 50
+
+    // Counters:
+    //   total_collected  = 350  (300 + 50 reported)
+    //   total_withdrawn  = 200  (unchanged)
+    //   expected_balance = 150  (350 - 200)
+    //   actual balance   = 130  (100 + 30 actually received)
+    assert_eq!(client.get_total_collected(&token), 350);
+    assert_eq!(client.get_total_withdrawn(&token), 200);
+    assert_eq!(client.get_expected_balance(&token), 150);
+    assert_eq!(client.get_balance(&token), 130);
+
+    // Drift is now detectable: expected != actual.
+    let drift = client.get_expected_balance(&token) - client.get_balance(&token);
+    assert_eq!(drift, 20, "expected 20-token drift from over-reported collect_fee");
+}
+
 #[test]
 fn test_withdraw_invalid_amount() {
     let (env, client, admin, treasury, token, _token_admin) = setup();
