@@ -44,6 +44,14 @@ use soroban_sdk::{
 const KEY_CONFIG: Symbol = symbol_short!("CONFIG");
 const KEY_SEQ: Symbol = symbol_short!("SEQ");
 
+/// Hard ceiling on `fee_bps`, enforced by both `initialize` and `set_fee`.
+/// 10_000 (100%) was previously accepted, which lets a single admin key
+/// (accidentally or maliciously) zero out every future payment's net
+/// amount — see the issue this constant closes for the full analysis.
+/// 1_000 bps (10%) is comfortably above any realistic protocol fee for
+/// this kind of payment platform while still bounding the worst case.
+pub const MAX_FEE_BPS: u32 = 1_000;
+
 /// Global counter for subscription ids (instance storage).
 const KEY_SUB_SEQ: Symbol = symbol_short!("SUBSEQ");
 /// Persistent key prefix: (KEY_SUB, id) → Subscription.
@@ -108,7 +116,7 @@ impl StellarSendContract {
     /// Initialise the contract.  Must be called exactly once.
     ///
     /// * `admin`         – Address that owns admin capabilities.
-    /// * `fee_bps`       – Initial fee in basis points (0 – 10 000).
+    /// * `fee_bps`       – Initial fee in basis points (0 – `MAX_FEE_BPS`).
     /// * `fee_collector` – Address of the deployed `fee_collector` contract.
     pub fn initialize(
         env: Env,
@@ -121,7 +129,7 @@ impl StellarSendContract {
             return Err(StellarSendError::AlreadyInitialized);
         }
 
-        if fee_bps > 10_000 {
+        if fee_bps > MAX_FEE_BPS {
             return Err(StellarSendError::InvalidFeeBps);
         }
 
@@ -148,12 +156,12 @@ impl StellarSendContract {
 
     /// Update the protocol fee.  Only the admin may call this.
     ///
-    /// * `new_fee_bps` – New fee in basis points (0 – 10 000).
+    /// * `new_fee_bps` – New fee in basis points (0 – `MAX_FEE_BPS`).
     pub fn set_fee(env: Env, new_fee_bps: u32) -> Result<(), StellarSendError> {
         let mut config = Self::load_config(&env)?;
         config.admin.require_auth();
 
-        if new_fee_bps > 10_000 {
+        if new_fee_bps > MAX_FEE_BPS {
             return Err(StellarSendError::InvalidFeeBps);
         }
 
