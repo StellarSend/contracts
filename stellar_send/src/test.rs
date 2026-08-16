@@ -948,6 +948,25 @@ fn test_execute_subscription_max_executions_bounds_catch_up_burst_with_fee() {
     let sub = client.get_subscription(&id);
     assert_eq!(sub.executions_count, cap);
     assert!(!sub.active, "the cap must auto-deactivate the subscription");
+
+    assert_eq!(
+        token_client.balance(&fee_collector),
+        expected_fee_per_execution * cap as i128
+    );
+    assert_eq!(
+        token_client.balance(&recipient),
+        expected_net_per_execution * cap as i128
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        initial_mint - amount * cap as i128
+    );
+
+    // The cap must still stop the burst even though unclaimed due-times
+    // remain, regardless of the nonzero fee path.
+    assert!(sub.next_execution_time <= start + 5 * interval);
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
 }
 
 // ---------------------------------------------------------------------------
