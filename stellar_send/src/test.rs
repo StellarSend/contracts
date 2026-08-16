@@ -939,6 +939,15 @@ fn test_execute_subscription_max_executions_bounds_catch_up_burst_with_fee() {
 
     let expected_fee_per_execution = amount * fee_bps as i128 / 10_000i128; // 20
     let expected_net_per_execution = amount - expected_fee_per_execution; // 980
+
+    for _ in 0..cap {
+        let net = client.execute_subscription(&id);
+        assert_eq!(net, expected_net_per_execution);
+    }
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count, cap);
+    assert!(!sub.active, "the cap must auto-deactivate the subscription");
 }
 
 // ---------------------------------------------------------------------------
