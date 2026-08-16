@@ -872,6 +872,26 @@ fn test_execute_subscription_rapid_catch_up_multiple_calls_with_fee() {
             "catch-up call {call_number} of {expected_catch_up_calls} should forward the fee-adjusted net amount"
         );
     }
+
+    // Cumulative fee-collector balance across the whole burst must equal the
+    // sum of each execution's individually-computed fee, not just the first
+    // execution's fee scaled up (which would mask a per-call drift bug).
+    assert_eq!(
+        token_client.balance(&fee_collector),
+        expected_fee_per_execution * expected_catch_up_calls as i128
+    );
+    assert_eq!(
+        token_client.balance(&recipient),
+        expected_net_per_execution * expected_catch_up_calls as i128
+    );
+    // The payer's balance must drop by the full gross amount (fee leg + net
+    // leg) per execution, confirming the two transfer_from calls per
+    // execution debit the payer's allowance symmetrically across a burst
+    // rather than only accounting for the net leg.
+    assert_eq!(
+        token_client.balance(&payer),
+        initial_mint - amount * expected_catch_up_calls as i128
+    );
 }
 
 // ---------------------------------------------------------------------------
