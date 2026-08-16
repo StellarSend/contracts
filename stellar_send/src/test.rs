@@ -13,7 +13,7 @@ use soroban_sdk::{
 
 use crate::{
     ContractConfig, PaymentRequestStatus, StellarSendContract, StellarSendContractClient,
-    StellarSendError,
+    StellarSendError, MAX_FEE_BPS,
 };
 
 // ---------------------------------------------------------------------------
@@ -92,8 +92,32 @@ fn test_initialize_already_initialized() {
 fn test_initialize_invalid_fee_bps() {
     let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
 
-    // 10_001 bps > 100 % — must be rejected.
-    let result = client.try_initialize(&admin, &10_001u32, &fee_collector);
+    // One above the ceiling — must be rejected.
+    let result = client.try_initialize(&admin, &(MAX_FEE_BPS + 1), &fee_collector);
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
+}
+
+#[test]
+fn test_initialize_accepts_max_fee_boundary() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector);
+
+    let config: ContractConfig = client.get_config();
+    assert_eq!(config.fee_bps, MAX_FEE_BPS);
+}
+
+/// Regression test for the vulnerability this ceiling closes: prior to
+/// introducing `MAX_FEE_BPS`, `initialize` accepted `fee_bps: 10_000`
+/// (100%) — meaning every subsequent payment's net amount would have been
+/// zero, with the full gross amount routed to `fee_collector`. This must
+/// now be rejected outright at initialization, before any payment can ever
+/// be processed under that fee.
+#[test]
+fn test_initialize_rejects_100_percent_fee() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+
+    let result = client.try_initialize(&admin, &10_000u32, &fee_collector);
     assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
 }
 
@@ -232,8 +256,38 @@ fn test_set_fee_invalid_bps() {
     let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
     client.initialize(&admin, &100u32, &fee_collector);
 
-    let result = client.try_set_fee(&10_001u32);
+    let result = client.try_set_fee(&(MAX_FEE_BPS + 1));
     assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
+}
+
+#[test]
+fn test_set_fee_accepts_max_fee_boundary() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+    client.initialize(&admin, &100u32, &fee_collector);
+
+    client.set_fee(&MAX_FEE_BPS);
+    let config = client.get_config();
+    assert_eq!(config.fee_bps, MAX_FEE_BPS);
+}
+
+/// Regression test for the vulnerability this ceiling closes: prior to
+/// introducing `MAX_FEE_BPS`, a single admin key could call
+/// `set_fee(10_000)` (100%) at any time and instantly zero out the net
+/// amount of every subsequent payment, batch leg, payment-request
+/// fulfillment, and subscription execution — draining the full gross
+/// amount to `fee_collector` with no timelock or warning. This must now be
+/// rejected outright.
+#[test]
+fn test_set_fee_rejects_100_percent_fee() {
+    let (_env, client, admin, fee_collector, _token, _token_admin) = setup();
+    client.initialize(&admin, &100u32, &fee_collector);
+
+    let result = client.try_set_fee(&10_000u32);
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidFeeBps)));
+
+    // The fee must remain unchanged after the rejected attempt.
+    let config = client.get_config();
+    assert_eq!(config.fee_bps, 100u32);
 }
 
 #[test]
@@ -356,6 +410,74 @@ fn test_get_payment_record_uninitialized_contract() {
     let sender = Address::generate(&env);
     let result = client.try_get_payment_record(&sender, &1u64);
     assert_eq!(result, Err(Ok(StellarSendError::NotInitialized)));
+
+    let seq_result = client.try_get_sequence(&sender);
+    assert_eq!(seq_result, Err(Ok(StellarSendError::NotInitialized)));
+}
+
+#[test]
+fn test_interleaved_per_sender_sequence_contiguity() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let sender_a = Address::generate(&env);
+    let sender_b = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    mint(&env, &token, &token_admin, &sender_a, 2_000);
+    mint(&env, &token, &token_admin, &sender_b, 1_000);
+
+    // Initial sequences for both senders should be 0.
+    assert_eq!(client.get_sequence(&sender_a), 0);
+    assert_eq!(client.get_sequence(&sender_b), 0);
+
+    // Sender A payment 1 -> seq 1
+    client.send_payment(
+        &sender_a,
+        &recipient,
+        &token,
+        &500i128,
+        &String::from_str(&env, "a payment 1"),
+    );
+
+    // Sender B payment 1 -> seq 1 (independent from Sender A)
+    client.send_payment(
+        &sender_b,
+        &recipient,
+        &token,
+        &400i128,
+        &String::from_str(&env, "b payment 1"),
+    );
+
+    // Sender A payment 2 -> seq 2 (contiguous range 1..2 for Sender A)
+    client.send_payment(
+        &sender_a,
+        &recipient,
+        &token,
+        &600i128,
+        &String::from_str(&env, "a payment 2"),
+    );
+
+    assert_eq!(client.get_sequence(&sender_a), 2);
+    assert_eq!(client.get_sequence(&sender_b), 1);
+
+    // Sender A's records are retrievable at contiguous sequence numbers 1 and 2
+    let record_a1 = client.get_payment_record(&sender_a, &1u64);
+    assert_eq!(record_a1.net_amount, 500);
+    assert_eq!(record_a1.memo, String::from_str(&env, "a payment 1"));
+
+    let record_a2 = client.get_payment_record(&sender_a, &2u64);
+    assert_eq!(record_a2.net_amount, 600);
+    assert_eq!(record_a2.memo, String::from_str(&env, "a payment 2"));
+
+    // Sender B's record is retrievable at seq 1
+    let record_b1 = client.get_payment_record(&sender_b, &1u64);
+    assert_eq!(record_b1.net_amount, 400);
+    assert_eq!(record_b1.memo, String::from_str(&env, "b payment 1"));
+
+    // Querying beyond sender_a's sequence count returns PaymentRecordNotFound
+    let result_a3 = client.try_get_payment_record(&sender_a, &3u64);
+    assert_eq!(result_a3, Err(Ok(StellarSendError::PaymentRecordNotFound)));
 }
 
 #[test]
@@ -765,6 +887,151 @@ fn test_execute_subscription_max_executions_bounds_catch_up_burst() {
     // still <= now), but the cap stops the burst here regardless —
     // SubscriptionInactive, not SubscriptionNotDue, proving this is the
     // cap enforcing itself rather than the schedule naturally running out.
+    assert!(sub.next_execution_time <= start + 5 * interval);
+    let result = client.try_execute_subscription(&id);
+    assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
+}
+
+#[test]
+fn test_execute_subscription_rapid_catch_up_multiple_calls_with_fee() {
+    // Fee-bearing counterpart to test_execute_subscription_rapid_catch_up_multiple_calls
+    // (see #50): the 0%-fee original never exercises fee-forwarding across a
+    // rapid catch-up burst, so it can't catch an accounting bug where the
+    // per-execution fee/net split behaves correctly once but drifts (or
+    // double-counts against the payer's allowance) across repeated calls.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    let fee_bps = 200u32; // 2%
+    client.initialize(&admin, &fee_bps, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let initial_mint = 100_000i128;
+    mint(&env, &token, &token_admin, &payer, initial_mint);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let amount = 1_000i128;
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &amount, &interval, &start, &None, &None,
+    );
+
+    // Same 5-interval backlog as the 0%-fee version above: six due-times
+    // (start plus five subsequent intervals) all claimable in one burst.
+    let missed_intervals: u64 = 5;
+    env.ledger()
+        .set_timestamp(start + missed_intervals * interval);
+    let expected_catch_up_calls = missed_intervals + 1;
+
+    let expected_fee_per_execution = amount * fee_bps as i128 / 10_000i128; // 20
+    let expected_net_per_execution = amount - expected_fee_per_execution; // 980
+
+    for call_number in 1..=expected_catch_up_calls {
+        let net = client.execute_subscription(&id);
+        assert_eq!(
+            net, expected_net_per_execution,
+            "catch-up call {call_number} of {expected_catch_up_calls} should forward the fee-adjusted net amount"
+        );
+    }
+
+    // Cumulative fee-collector balance across the whole burst must equal the
+    // sum of each execution's individually-computed fee, not just the first
+    // execution's fee scaled up (which would mask a per-call drift bug).
+    assert_eq!(
+        token_client.balance(&fee_collector),
+        expected_fee_per_execution * expected_catch_up_calls as i128
+    );
+    assert_eq!(
+        token_client.balance(&recipient),
+        expected_net_per_execution * expected_catch_up_calls as i128
+    );
+    // The payer's balance must drop by the full gross amount (fee leg + net
+    // leg) per execution, confirming the two transfer_from calls per
+    // execution debit the payer's allowance symmetrically across a burst
+    // rather than only accounting for the net leg.
+    assert_eq!(
+        token_client.balance(&payer),
+        initial_mint - amount * expected_catch_up_calls as i128
+    );
+}
+
+#[test]
+fn test_execute_subscription_max_executions_bounds_catch_up_burst_with_fee() {
+    // Fee-bearing counterpart to
+    // test_execute_subscription_max_executions_bounds_catch_up_burst (#50):
+    // verifies the max_executions cap still enforces correctly, and fee
+    // accounting stays correct, when a capped catch-up burst also forwards
+    // a nonzero fee per execution.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    let fee_bps = 200u32; // 2%
+    client.initialize(&admin, &fee_bps, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let initial_mint = 100_000i128;
+    mint(&env, &token, &token_admin, &payer, initial_mint);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let amount = 1_000i128;
+    let cap = 3u32;
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &amount,
+        &interval,
+        &start,
+        &Some(cap),
+        &None,
+    );
+
+    // Same 5-interval backlog as the uncapped fee-bearing test above — six
+    // due-times would otherwise be claimable in one burst.
+    env.ledger().set_timestamp(start + 5 * interval);
+
+    let expected_fee_per_execution = amount * fee_bps as i128 / 10_000i128; // 20
+    let expected_net_per_execution = amount - expected_fee_per_execution; // 980
+
+    for _ in 0..cap {
+        let net = client.execute_subscription(&id);
+        assert_eq!(net, expected_net_per_execution);
+    }
+
+    let sub = client.get_subscription(&id);
+    assert_eq!(sub.executions_count, cap);
+    assert!(!sub.active, "the cap must auto-deactivate the subscription");
+
+    assert_eq!(
+        token_client.balance(&fee_collector),
+        expected_fee_per_execution * cap as i128
+    );
+    assert_eq!(
+        token_client.balance(&recipient),
+        expected_net_per_execution * cap as i128
+    );
+    assert_eq!(
+        token_client.balance(&payer),
+        initial_mint - amount * cap as i128
+    );
+
+    // The cap must still stop the burst even though unclaimed due-times
+    // remain, regardless of the nonzero fee path.
     assert!(sub.next_execution_time <= start + 5 * interval);
     let result = client.try_execute_subscription(&id);
     assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));

@@ -15,10 +15,10 @@
 //! ──────────────
 //! Instance storage (short-lived, cheap):
 //!   KEY_CONFIG  → ContractConfig
-//!   KEY_SEQ     → u64  (global payment sequence counter)
 //!
 //! Persistent storage (survives ledger closings):
-//!   (from, seq) → PaymentRecord
+//!   (KEY_SEQ, from) → u64  (per-sender payment sequence counter)
+//!   (from, seq)     → PaymentRecord
 
 #![no_std]
 
@@ -44,6 +44,14 @@ use soroban_sdk::{
 
 const KEY_CONFIG: Symbol = symbol_short!("CONFIG");
 const KEY_SEQ: Symbol = symbol_short!("SEQ");
+
+/// Hard ceiling on `fee_bps`, enforced by both `initialize` and `set_fee`.
+/// 10_000 (100%) was previously accepted, which lets a single admin key
+/// (accidentally or maliciously) zero out every future payment's net
+/// amount — see the issue this constant closes for the full analysis.
+/// 1_000 bps (10%) is comfortably above any realistic protocol fee for
+/// this kind of payment platform while still bounding the worst case.
+pub const MAX_FEE_BPS: u32 = 1_000;
 
 /// Global counter for subscription ids (instance storage).
 const KEY_SUB_SEQ: Symbol = symbol_short!("SUBSEQ");
@@ -109,7 +117,7 @@ impl StellarSendContract {
     /// Initialise the contract.  Must be called exactly once.
     ///
     /// * `admin`         – Address that owns admin capabilities.
-    /// * `fee_bps`       – Initial fee in basis points (0 – 10 000).
+    /// * `fee_bps`       – Initial fee in basis points (0 – `MAX_FEE_BPS`).
     /// * `fee_collector` – Address of the deployed `fee_collector` contract.
     pub fn initialize(
         env: Env,
@@ -122,7 +130,7 @@ impl StellarSendContract {
             return Err(StellarSendError::AlreadyInitialized);
         }
 
-        if fee_bps > 10_000 {
+        if fee_bps > MAX_FEE_BPS {
             return Err(StellarSendError::InvalidFeeBps);
         }
 
@@ -137,7 +145,6 @@ impl StellarSendContract {
         };
 
         env.storage().instance().set(&KEY_CONFIG, &config);
-        env.storage().instance().set(&KEY_SEQ, &0u64);
 
         Ok(())
     }
@@ -149,12 +156,12 @@ impl StellarSendContract {
 
     /// Update the protocol fee.  Only the admin may call this.
     ///
-    /// * `new_fee_bps` – New fee in basis points (0 – 10 000).
+    /// * `new_fee_bps` – New fee in basis points (0 – `MAX_FEE_BPS`).
     pub fn set_fee(env: Env, new_fee_bps: u32) -> Result<(), StellarSendError> {
         let mut config = Self::load_config(&env)?;
         config.admin.require_auth();
 
-        if new_fee_bps > 10_000 {
+        if new_fee_bps > MAX_FEE_BPS {
             return Err(StellarSendError::InvalidFeeBps);
         }
 
@@ -205,7 +212,7 @@ impl StellarSendContract {
         let (fee_amount, net_amount) = Self::split_fee(amount, config.fee_bps)?;
 
         // Build and store the payment record.
-        let seq = Self::next_seq(&env);
+        let seq = Self::next_seq(&env, &from);
         let record = PaymentRecord {
             from: from.clone(),
             to: to.clone(),
@@ -299,7 +306,7 @@ impl StellarSendContract {
         }
 
         // Store record.
-        let seq = Self::next_seq(&env);
+        let seq = Self::next_seq(&env, &from);
         let key = (from.clone(), seq);
         let record = PaymentRecord {
             from: from.clone(),
@@ -341,16 +348,31 @@ impl StellarSendContract {
         Ok(simulated_dest_amount)
     }
 
-    /// Retrieve a stored payment record by sender and sequence number.
+    /// Return the total number of payments (current sequence count) sent by `from`.
+    ///
+    /// Sequence numbers for `from` start at 1 for their first payment and increment
+    /// contiguously up to `get_sequence(from)`.
+    pub fn get_sequence(env: Env, from: Address) -> Result<u64, StellarSendError> {
+        Self::load_config(&env)?;
+
+        let key = (KEY_SEQ, from);
+        let seq: u64 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(0u64);
+        Ok(seq)
+    }
+
+    /// Retrieve a stored payment record by sender and per-sender sequence number.
+    ///
+    /// Payment sequence numbers start at 1 for each sender's first payment and
+    /// increment contiguously with each payment sent by that `from` address.
     ///
     /// Returns `NotInitialized` if the contract itself has never been
     /// initialized, or `PaymentRecordNotFound` if it has, but no record
-    /// exists for this `(from, seq)` pair — e.g. a wrong sequence number,
-    /// or a caller querying before the transaction that would have
-    /// created the record has confirmed. These used to be conflated: any
-    /// missing record reported `NotInitialized` regardless of whether the
-    /// contract was actually initialized (#25), which is misleading for
-    /// an integrator branching on the error to decide how to recover.
+    /// exists for this `(from, seq)` pair — e.g. a sequence number beyond
+    /// the sender's current sequence count (`get_sequence`).
     pub fn get_payment_record(
         env: Env,
         from: Address,
@@ -377,15 +399,16 @@ impl StellarSendContract {
             .ok_or(StellarSendError::NotInitialized)
     }
 
-    /// Increment and return the global payment sequence counter.
-    fn next_seq(env: &Env) -> u64 {
+    /// Increment and return the per-sender payment sequence counter.
+    fn next_seq(env: &Env, from: &Address) -> u64 {
+        let key = (KEY_SEQ, from.clone());
         let seq: u64 = env
             .storage()
-            .instance()
-            .get(&KEY_SEQ)
+            .persistent()
+            .get(&key)
             .unwrap_or(0u64);
         let next = seq.wrapping_add(1);
-        env.storage().instance().set(&KEY_SEQ, &next);
+        env.storage().persistent().set(&key, &next);
         next
     }
 
