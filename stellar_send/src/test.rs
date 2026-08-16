@@ -410,6 +410,74 @@ fn test_get_payment_record_uninitialized_contract() {
     let sender = Address::generate(&env);
     let result = client.try_get_payment_record(&sender, &1u64);
     assert_eq!(result, Err(Ok(StellarSendError::NotInitialized)));
+
+    let seq_result = client.try_get_sequence(&sender);
+    assert_eq!(seq_result, Err(Ok(StellarSendError::NotInitialized)));
+}
+
+#[test]
+fn test_interleaved_per_sender_sequence_contiguity() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let sender_a = Address::generate(&env);
+    let sender_b = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    mint(&env, &token, &token_admin, &sender_a, 2_000);
+    mint(&env, &token, &token_admin, &sender_b, 1_000);
+
+    // Initial sequences for both senders should be 0.
+    assert_eq!(client.get_sequence(&sender_a), 0);
+    assert_eq!(client.get_sequence(&sender_b), 0);
+
+    // Sender A payment 1 -> seq 1
+    client.send_payment(
+        &sender_a,
+        &recipient,
+        &token,
+        &500i128,
+        &String::from_str(&env, "a payment 1"),
+    );
+
+    // Sender B payment 1 -> seq 1 (independent from Sender A)
+    client.send_payment(
+        &sender_b,
+        &recipient,
+        &token,
+        &400i128,
+        &String::from_str(&env, "b payment 1"),
+    );
+
+    // Sender A payment 2 -> seq 2 (contiguous range 1..2 for Sender A)
+    client.send_payment(
+        &sender_a,
+        &recipient,
+        &token,
+        &600i128,
+        &String::from_str(&env, "a payment 2"),
+    );
+
+    assert_eq!(client.get_sequence(&sender_a), 2);
+    assert_eq!(client.get_sequence(&sender_b), 1);
+
+    // Sender A's records are retrievable at contiguous sequence numbers 1 and 2
+    let record_a1 = client.get_payment_record(&sender_a, &1u64);
+    assert_eq!(record_a1.net_amount, 500);
+    assert_eq!(record_a1.memo, String::from_str(&env, "a payment 1"));
+
+    let record_a2 = client.get_payment_record(&sender_a, &2u64);
+    assert_eq!(record_a2.net_amount, 600);
+    assert_eq!(record_a2.memo, String::from_str(&env, "a payment 2"));
+
+    // Sender B's record is retrievable at seq 1
+    let record_b1 = client.get_payment_record(&sender_b, &1u64);
+    assert_eq!(record_b1.net_amount, 400);
+    assert_eq!(record_b1.memo, String::from_str(&env, "b payment 1"));
+
+    // Querying beyond sender_a's sequence count returns PaymentRecordNotFound
+    let result_a3 = client.try_get_payment_record(&sender_a, &3u64);
+    assert_eq!(result_a3, Err(Ok(StellarSendError::PaymentRecordNotFound)));
 }
 
 #[test]

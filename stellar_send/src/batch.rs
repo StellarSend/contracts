@@ -61,7 +61,7 @@ impl StellarSendContract {
             }
             token_client.transfer(&from, &recipient, &net_amount);
 
-            let seq = Self::next_seq(&env);
+            let seq = Self::next_seq(&env, &from);
             let record = PaymentRecord {
                 from: from.clone(),
                 to: recipient.clone(),
