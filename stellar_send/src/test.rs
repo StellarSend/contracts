@@ -13,7 +13,7 @@ use soroban_sdk::{
 
 use crate::{
     ContractConfig, PaymentRequestStatus, StellarSendContract, StellarSendContractClient,
-    StellarSendError, MAX_FEE_BPS,
+    StellarSendError, MAX_FEE_BPS, MAX_MEMO_BYTES,
 };
 
 // ---------------------------------------------------------------------------
@@ -1201,4 +1201,89 @@ fn test_payment_request_cancel_then_fulfill_fails() {
 
     let result = client.try_fulfill_payment_request(&id, &payer);
     assert_eq!(result, Err(Ok(StellarSendError::RequestCancelled)));
+}
+
+// ---------------------------------------------------------------------------
+// Memo length enforcement (#49)
+// ---------------------------------------------------------------------------
+
+/// `send_payment` must reject any memo whose byte length exceeds `MAX_MEMO_BYTES`.
+#[test]
+fn test_send_payment_rejects_oversized_memo() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 10_000);
+
+    // Build a memo that is one byte longer than the limit (29 ASCII bytes).
+    let oversized_memo = String::from_str(&env, "12345678901234567890123456789");
+    assert_eq!(oversized_memo.len(), MAX_MEMO_BYTES + 1);
+
+    let result = client.try_send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &1_000i128,
+        &oversized_memo,
+    );
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidMemo)));
+
+    // No tokens should have moved.
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&sender), 10_000);
+    assert_eq!(token_client.balance(&recipient), 0);
+}
+
+/// A memo at exactly `MAX_MEMO_BYTES` (28 bytes) must still succeed — off-by-one check.
+#[test]
+fn test_send_payment_boundary_memo_succeeds() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 10_000);
+
+    // Exactly 28 ASCII bytes — must be accepted.
+    let boundary_memo = String::from_str(&env, "1234567890123456789012345678");
+    assert_eq!(boundary_memo.len(), MAX_MEMO_BYTES);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &1_000i128,
+        &boundary_memo,
+    );
+    assert_eq!(record.net_amount, 1_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&recipient), 1_000);
+}
+
+/// `create_payment_request` must reject any memo whose byte length exceeds `MAX_MEMO_BYTES`.
+#[test]
+fn test_create_payment_request_rejects_oversized_memo() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let requester = Address::generate(&env);
+    let expiry = env.ledger().timestamp() + 1_000;
+
+    // Build a 500-byte memo — far beyond the 28-byte limit.
+    let long_str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let oversized_memo = String::from_str(&env, long_str);
+    assert!(oversized_memo.len() > MAX_MEMO_BYTES);
+
+    let result = client.try_create_payment_request(
+        &requester,
+        &None,
+        &token,
+        &1_000i128,
+        &oversized_memo,
+        &expiry,
+    );
+    assert_eq!(result, Err(Ok(StellarSendError::InvalidMemo)));
 }

@@ -53,6 +53,13 @@ const KEY_SEQ: Symbol = symbol_short!("SEQ");
 /// this kind of payment platform while still bounding the worst case.
 pub const MAX_FEE_BPS: u32 = 1_000;
 
+/// Maximum memo length in bytes, enforced in `send_payment` and
+/// `create_payment_request`.  Mirrors the 28-byte limit of Stellar's
+/// classic-transaction MEMO_TEXT field.  `soroban_sdk::String::len()`
+/// returns the byte length of the underlying buffer, so this correctly
+/// rejects memos whose UTF-8 encoding exceeds 28 bytes.
+pub const MAX_MEMO_BYTES: u32 = 28;
+
 /// Global counter for subscription ids (instance storage).
 const KEY_SUB_SEQ: Symbol = symbol_short!("SUBSEQ");
 /// Persistent key prefix: (KEY_SUB, id) → Subscription.
@@ -190,7 +197,7 @@ impl StellarSendContract {
     /// * `to`     – Destination address.
     /// * `token`  – SEP-41 / Stellar token contract address.
     /// * `amount` – Gross amount to send (fee is taken from this).
-    /// * `memo`   – Arbitrary memo string (max 28 bytes recommended).
+    /// * `memo`   – Arbitrary memo string (max 28 bytes, enforced).
     pub fn send_payment(
         env: Env,
         from: Address,
@@ -206,6 +213,10 @@ impl StellarSendContract {
 
         if amount <= 0 {
             return Err(StellarSendError::InvalidAmount);
+        }
+
+        if memo.len() > MAX_MEMO_BYTES {
+            return Err(StellarSendError::InvalidMemo);
         }
 
         // Calculate fee and net amounts.

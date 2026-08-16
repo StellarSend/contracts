@@ -63,6 +63,9 @@ impl StellarSendContract {
         if amount <= 0 {
             return Err(StellarSendError::InvalidAmount);
         }
+        if memo.len() > crate::MAX_MEMO_BYTES {
+            return Err(StellarSendError::InvalidMemo);
+        }
         if expiry <= env.ledger().timestamp() {
             return Err(StellarSendError::InvalidExpiry);
         }

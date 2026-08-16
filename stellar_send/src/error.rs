@@ -74,4 +74,11 @@ pub enum StellarSendError {
     /// sequence number, or querying before the transaction that would
     /// have created it has confirmed).
     PaymentRecordNotFound = 25,
+
+    // -- Memo validation (#49) --------------------------------------------
+    /// The memo string exceeds `MAX_MEMO_BYTES` (28 bytes). Mirrors the
+    /// 28-byte limit of Stellar's classic-transaction MEMO_TEXT field.
+    /// Enforced in both `send_payment` and `create_payment_request` to
+    /// prevent unbounded persistent-storage growth from oversized memos.
+    InvalidMemo = 26,
 }
