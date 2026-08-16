@@ -10,10 +10,39 @@
 //!   KEY_TREASURY → Address
 //!
 //! Persistent storage (keyed by token address):
-//!   (KEY_TOTAL, token) → i128   — lifetime total collected
+//!   (KEY_TOTAL,     token) → i128   — lifetime total collected (reported)
+//!   (KEY_WITHDRAWN, token) → i128   — lifetime total withdrawn
 //!
 //! The actual token balances are tracked by the token contracts themselves;
 //! `get_balance` queries the token contract directly.
+//!
+//! ## Trust-the-caller caveat
+//!
+//! `get_total_collected` is a **reported / claimed** figure, not a value
+//! independently verified against real token movement.  When `collect_fee` is
+//! called, the contract blindly trusts the `amount` parameter supplied by the
+//! caller (by design — the corresponding token transfer has already occurred
+//! before `collect_fee` is called, and re-querying the balance would be
+//! racy).  Consequently `get_total_collected` and `get_balance` can legitimately
+//! diverge for entirely benign reasons:
+//!
+//! * Every `withdraw` call reduces `get_balance` without reducing
+//!   `get_total_collected` (because `KEY_TOTAL` is a *lifetime* counter, not a
+//!   live balance).
+//! * A caller that passes an `amount` inconsistent with what was actually
+//!   transferred (e.g. due to a rounding bug or a fee-on-transfer token) will
+//!   silently skew the counter.
+//!
+//! To aid treasury auditing, the contract also tracks a parallel
+//! `(KEY_WITHDRAWN, token)` lifetime counter so that the invariant
+//!
+//! ```text
+//! get_expected_balance(token) == get_total_collected(token) - get_total_withdrawn(token)
+//! ```
+//!
+//! can be computed on-chain and diffed against `get_balance(token)`.  Any
+//! non-zero difference signals drift that warrants investigation, but the
+//! contract itself cannot auto-correct it.
 
 #![no_std]
 
@@ -31,6 +60,9 @@ const KEY_INIT: Symbol = symbol_short!("INIT");
 
 /// Persistent key prefix for lifetime-total-collected per token.
 const KEY_TOTAL: Symbol = symbol_short!("TOTAL");
+
+/// Persistent key prefix for lifetime-total-withdrawn per token.
+const KEY_WITHDRAWN: Symbol = symbol_short!("WDRAWN");
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -150,6 +182,18 @@ impl FeeCollectorContract {
         let token_client = token::Client::new(&env, &token);
         token_client.transfer(&env.current_contract_address(), &recipient, &amount);
 
+        // Update lifetime-withdrawn counter for this token.
+        let withdrawn_key = (KEY_WITHDRAWN, token.clone());
+        let current_withdrawn: i128 = env
+            .storage()
+            .persistent()
+            .get(&withdrawn_key)
+            .unwrap_or(0i128);
+        let new_withdrawn = current_withdrawn
+            .checked_add(amount)
+            .ok_or(FeeCollectorError::ArithmeticOverflow)?;
+        env.storage().persistent().set(&withdrawn_key, &new_withdrawn);
+
         // Emit event.
         env.events().publish(
             (symbol_short!("fee_wdrw"), token, recipient),
@@ -183,12 +227,57 @@ impl FeeCollectorContract {
     }
 
     /// Return the lifetime total amount of `token` ever collected as fees.
+    ///
+    /// **Note:** this is a reported/claimed figure supplied by the caller of
+    /// `collect_fee`.  It is not independently verified against the contract's
+    /// real token balance.  See the module-level documentation for details.
     pub fn get_total_collected(env: Env, token: Address) -> i128 {
         let total_key = (KEY_TOTAL, token);
         env.storage()
             .persistent()
             .get(&total_key)
             .unwrap_or(0i128)
+    }
+
+    /// Return the lifetime total amount of `token` ever withdrawn by the admin.
+    pub fn get_total_withdrawn(env: Env, token: Address) -> i128 {
+        let withdrawn_key = (KEY_WITHDRAWN, token);
+        env.storage()
+            .persistent()
+            .get(&withdrawn_key)
+            .unwrap_or(0i128)
+    }
+
+    /// Return the expected current balance derived from on-chain counters:
+    ///
+    /// ```text
+    /// expected = get_total_collected(token) - get_total_withdrawn(token)
+    /// ```
+    ///
+    /// Comparing this value against `get_balance(token)` surfaces any drift
+    /// between what the accounting counters claim and what the contract
+    /// actually holds.  A non-zero difference signals that the `amount`
+    /// passed to one or more `collect_fee` calls did not match the tokens
+    /// that were actually transferred (e.g. a rounding bug or a
+    /// fee-on-transfer token).
+    pub fn get_expected_balance(env: Env, token: Address) -> i128 {
+        let total_key = (KEY_TOTAL, token.clone());
+        let total_collected: i128 = env
+            .storage()
+            .persistent()
+            .get(&total_key)
+            .unwrap_or(0i128);
+
+        let withdrawn_key = (KEY_WITHDRAWN, token);
+        let total_withdrawn: i128 = env
+            .storage()
+            .persistent()
+            .get(&withdrawn_key)
+            .unwrap_or(0i128);
+
+        // Saturating subtraction: the result should never be negative in a
+        // well-behaved deployment, but we guard against it defensively.
+        total_collected.saturating_sub(total_withdrawn)
     }
 
     /// Return the admin address.
