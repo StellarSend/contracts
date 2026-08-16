@@ -932,6 +932,13 @@ fn test_execute_subscription_max_executions_bounds_catch_up_burst_with_fee() {
         &Some(cap),
         &None,
     );
+
+    // Same 5-interval backlog as the uncapped fee-bearing test above — six
+    // due-times would otherwise be claimable in one burst.
+    env.ledger().set_timestamp(start + 5 * interval);
+
+    let expected_fee_per_execution = amount * fee_bps as i128 / 10_000i128; // 20
+    let expected_net_per_execution = amount - expected_fee_per_execution; // 980
 }
 
 // ---------------------------------------------------------------------------
