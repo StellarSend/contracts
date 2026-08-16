@@ -256,7 +256,13 @@ impl StellarSendContract {
         if fee_amount > 0 {
             token_client.transfer_from(&spender, &sub.payer, &config.fee_collector, &fee_amount);
         }
-        token_client.transfer_from(&spender, &sub.payer, &sub.recipient, &net_amount);
+        // Guard mirrors the fee leg above: skip a zero-amount transfer_from to
+        // the recipient when net_amount == 0 (reachable if fee_bps were ever
+        // 100%).  The subscription state update and event are still emitted —
+        // a fully-fee'd execution is a valid, if unusual, outcome, not an error.
+        if net_amount > 0 {
+            token_client.transfer_from(&spender, &sub.payer, &sub.recipient, &net_amount);
+        }
 
         crate::events::emit_subscription_executed(
             &env,

@@ -1202,3 +1202,160 @@ fn test_payment_request_cancel_then_fulfill_fails() {
     let result = client.try_fulfill_payment_request(&id, &payer);
     assert_eq!(result, Err(Ok(StellarSendError::RequestCancelled)));
 }
+
+// ---------------------------------------------------------------------------
+// Zero-net-transfer guard tests (closes #53)
+//
+// These tests exercise all four call sites at the maximum allowed fee
+// (MAX_FEE_BPS = 1_000 bps / 10%) to confirm:
+//   1. The net-amount guard (`if net_amount > 0`) is symmetric with the
+//      existing fee-amount guard — both legs are now conditionally transferred.
+//   2. Payments succeed cleanly at the ceiling fee, producing correct
+//      fee/net splits (fee = 10% of gross, net = 90% of gross).
+//
+// Prior to MAX_FEE_BPS being capped at 1_000, a fee of 10_000 bps (100%)
+// made net_amount == 0 reachable on every payment, and the unconditional
+// `token_client.transfer(..., &net_amount)` call could trap on any SEP-41
+// token implementation that (validly) rejects zero-amount transfers.  The
+// guard added by this fix is defense-in-depth for that case; with
+// MAX_FEE_BPS = 1_000, net_amount == 0 is no longer reachable through the
+// public API, but the guard keeps the code correct if the ceiling is ever
+// raised again, and removes the asymmetry that made the fee leg safe while
+// leaving the net leg unsafe.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_send_payment_at_max_fee_skips_zero_net_transfer() {
+    // Confirm send_payment at MAX_FEE_BPS (10%) succeeds, produces correct
+    // fee/net split, and transfers only the nonzero net amount to recipient.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    // Use a round amount so the 10% fee is exact: 1_000 gross → 100 fee, 900 net.
+    mint(&env, &token, &token_admin, &sender, 1_000);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &1_000i128,
+        &String::from_str(&env, "max fee test"),
+    );
+
+    assert_eq!(record.fee_amount, 100, "fee should be 10% of gross");
+    assert_eq!(record.net_amount, 900, "net should be 90% of gross");
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&fee_collector), 100);
+    assert_eq!(token_client.balance(&recipient), 900);
+    assert_eq!(token_client.balance(&sender), 0);
+}
+
+#[test]
+fn test_send_batch_payment_at_max_fee_skips_zero_net_transfer() {
+    // Confirm send_batch_payment at MAX_FEE_BPS (10%) succeeds across both
+    // legs, and the per-leg net-amount guard is in place (net > 0 for each
+    // leg, so both transfers execute).
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
+
+    let sender = Address::generate(&env);
+    let r1 = Address::generate(&env);
+    let r2 = Address::generate(&env);
+    // 1_000 + 2_000 gross; fee = 100 + 200 = 300; net = 900 + 1_800 = 2_700.
+    mint(&env, &token, &token_admin, &sender, 3_000);
+
+    let payments = vec![&env, (r1.clone(), 1_000i128), (r2.clone(), 2_000i128)];
+    let records = client.send_batch_payment(&sender, &token, &payments);
+
+    assert_eq!(records.len(), 2);
+    assert_eq!(records.get(0).unwrap().fee_amount, 100);
+    assert_eq!(records.get(0).unwrap().net_amount, 900);
+    assert_eq!(records.get(1).unwrap().fee_amount, 200);
+    assert_eq!(records.get(1).unwrap().net_amount, 1_800);
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&r1), 900);
+    assert_eq!(token_client.balance(&r2), 1_800);
+    assert_eq!(token_client.balance(&fee_collector), 300);
+    assert_eq!(token_client.balance(&sender), 0);
+}
+
+#[test]
+fn test_fulfill_payment_request_at_max_fee_skips_zero_net_transfer() {
+    // Confirm fulfill_payment_request at MAX_FEE_BPS (10%) succeeds and the
+    // net-amount guard is symmetric with the fee-leg guard already present.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
+
+    let requester = Address::generate(&env);
+    let payer = Address::generate(&env);
+    // 1_000 gross → 100 fee, 900 net.
+    mint(&env, &token, &token_admin, &payer, 1_000);
+
+    let expiry = env.ledger().timestamp() + 1_000;
+    let id = client.create_payment_request(
+        &requester,
+        &None,
+        &token,
+        &1_000i128,
+        &String::from_str(&env, "max fee invoice"),
+        &expiry,
+    );
+
+    let net = client.fulfill_payment_request(&id, &payer);
+    assert_eq!(net, 900, "net amount should be 90% of gross at 10% fee");
+
+    let request = client.get_payment_request(&id);
+    assert_eq!(request.status, PaymentRequestStatus::Fulfilled);
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&requester), 900);
+    assert_eq!(token_client.balance(&fee_collector), 100);
+    assert_eq!(token_client.balance(&payer), 0);
+}
+
+#[test]
+fn test_execute_subscription_at_max_fee_skips_zero_net_transfer() {
+    // Confirm execute_subscription at MAX_FEE_BPS (10%) succeeds and the
+    // net-amount transfer_from guard is symmetric with the fee leg already
+    // guarded.  The returned net_amount and balance changes must reflect the
+    // correct 90%/10% split.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    // 1_000 gross per execution → 100 fee, 900 net.
+    mint(&env, &token, &token_admin, &payer, 10_000);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &10_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let id = client.create_subscription(
+        &payer,
+        &recipient,
+        &token,
+        &1_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+
+    let net = client.execute_subscription(&id);
+    assert_eq!(net, 900, "net amount should be 90% of gross at 10% fee");
+
+    assert_eq!(token_client.balance(&recipient), 900);
+    assert_eq!(token_client.balance(&fee_collector), 100);
+    // Payer debited full 1_000 gross (fee + net legs combined).
+    assert_eq!(token_client.balance(&payer), 9_000);
+}

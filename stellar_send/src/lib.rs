@@ -236,7 +236,15 @@ impl StellarSendContract {
         }
 
         // Transfer net amount to the recipient.
-        token_client.transfer(&from, &to, &net_amount);
+        // Guard mirrors the fee leg above: a zero-amount transfer is not
+        // required to be accepted by every SEP-41 token implementation, so
+        // we skip the call when net_amount == 0 (reachable if fee_bps were
+        // ever raised to 100 %).  The PaymentRecord and event are still
+        // emitted — a 100 %-fee payment with net_amount == 0 is a valid,
+        // if unusual, outcome, not an error.
+        if net_amount > 0 {
+            token_client.transfer(&from, &to, &net_amount);
+        }
 
         // Emit event.
         events::emit_payment_sent(&env, &from, &to, &token, net_amount, fee_amount, &memo);
