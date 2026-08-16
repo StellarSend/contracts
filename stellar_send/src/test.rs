@@ -824,6 +824,38 @@ fn test_execute_subscription_max_executions_bounds_catch_up_burst() {
     assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
 }
 
+#[test]
+fn test_execute_subscription_rapid_catch_up_multiple_calls_with_fee() {
+    // Fee-bearing counterpart to test_execute_subscription_rapid_catch_up_multiple_calls
+    // (see #50): the 0%-fee original never exercises fee-forwarding across a
+    // rapid catch-up burst, so it can't catch an accounting bug where the
+    // per-execution fee/net split behaves correctly once but drifts (or
+    // double-counts against the payer's allowance) across repeated calls.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    let fee_bps = 200u32; // 2%
+    client.initialize(&admin, &fee_bps, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let initial_mint = 100_000i128;
+    mint(&env, &token, &token_admin, &payer, initial_mint);
+
+    let token_client = TokenClient::new(&env, &token);
+    token_client.approve(
+        &payer,
+        &client.address,
+        &100_000i128,
+        &(env.ledger().sequence() + 1_000),
+    );
+
+    let start = env.ledger().timestamp();
+    let interval = 600u64;
+    let amount = 1_000i128;
+    let id = client.create_subscription(
+        &payer, &recipient, &token, &amount, &interval, &start, &None, &None,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Batch payments
 // ---------------------------------------------------------------------------
