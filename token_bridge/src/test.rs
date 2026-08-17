@@ -8,7 +8,31 @@ use soroban_sdk::{
     Address, Env,
 };
 
-use crate::{TokenBridgeContract, TokenBridgeContractClient, TokenBridgeError};
+use crate::{
+    test_fee_token::{FeeOnTransferToken, FeeOnTransferTokenClient},
+    TokenBridgeContract, TokenBridgeContractClient, TokenBridgeError,
+};
+
+fn setup_fee_token() -> (
+    Env,
+    TokenBridgeContractClient<'static>,
+    Address, // admin
+    FeeOnTransferTokenClient<'static>,
+) {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+
+    let fee_token_id = env.register_contract(None, FeeOnTransferToken);
+    let fee_token = FeeOnTransferTokenClient::new(&env, &fee_token_id);
+
+    let contract_id = env.register_contract(None, TokenBridgeContract);
+    let client = TokenBridgeContractClient::new(&env, &contract_id);
+    client.initialize(&admin, &fee_token_id);
+
+    (env, client, admin, fee_token)
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -195,4 +219,25 @@ fn test_not_initialized_errors() {
     let user = Address::generate(&env);
     let result = client.try_wrap(&user, &100i128);
     assert_eq!(result, Err(Ok(TokenBridgeError::NotInitialized)));
+}
+
+// ---------------------------------------------------------------------------
+// Fee-on-transfer underlying token (#54)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_wrap_rejects_fee_on_transfer_underlying_shortfall() {
+    let (env, client, _admin, fee_token) = setup_fee_token();
+
+    let user = Address::generate(&env);
+    fee_token.mint(&user, &1_000);
+
+    // FeeOnTransferToken deducts 10%, so the contract only actually
+    // receives 900 of the requested 1_000 — must be rejected, not
+    // silently credited as if the full amount arrived.
+    let result = client.try_wrap(&user, &1_000i128);
+    assert_eq!(
+        result,
+        Err(Ok(TokenBridgeError::UnderlyingTransferShortfall))
+    );
 }
