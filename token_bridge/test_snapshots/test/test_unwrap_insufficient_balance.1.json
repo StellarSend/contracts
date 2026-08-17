@@ -347,6 +347,14 @@
                       },
                       {
                         "key": {
+                          "symbol": "REENTRANT"
+                        },
+                        "val": {
+                          "bool": false
+                        }
+                      },
+                      {
+                        "key": {
                           "symbol": "UNDER"
                         },
                         "val": {
