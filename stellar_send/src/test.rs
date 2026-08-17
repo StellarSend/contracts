@@ -1130,6 +1130,53 @@ fn test_payment_request_create_and_fulfill() {
 }
 
 #[test]
+fn test_payment_request_fee_locked_at_creation_survives_later_fee_change() {
+    // Regression test for #45: a requester prices an invoice against the fee
+    // in effect at creation, so an admin `set_fee` between creation and
+    // fulfillment must not change what the requester nets on the open request.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &100u32, &fee_collector); // 1 % at creation
+
+    let requester = Address::generate(&env);
+    let payer = Address::generate(&env);
+    mint(&env, &token, &token_admin, &payer, 10_000);
+
+    let expiry = env.ledger().timestamp() + 1_000;
+    let id = client.create_payment_request(
+        &requester,
+        &None,
+        &token,
+        &1_000i128,
+        &String::from_str(&env, "invoice #fee-locked"),
+        &expiry,
+    );
+
+    // The request stores the fee it was priced against.
+    let request = client.get_payment_request(&id);
+    assert_eq!(request.fee_bps, 100u32);
+    assert_eq!(request.status, PaymentRequestStatus::Open);
+
+    // Admin raises the global fee to 10 % *after* the invoice is open.
+    client.set_fee(&1_000u32);
+
+    // Fulfillment must still net the requester 990 (1 % of 1_000), not the
+    // 900 the new 10 % global rate would produce.
+    let net = client.fulfill_payment_request(&id, &payer);
+    assert_eq!(net, 990);
+
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&requester), 990);
+    assert_eq!(token_client.balance(&fee_collector), 10);
+
+    // The fulfilled request still carries the fee it was created under, and
+    // the live global config reflects the new rate for future requests.
+    let request = client.get_payment_request(&id);
+    assert_eq!(request.fee_bps, 100u32);
+    assert_eq!(request.status, PaymentRequestStatus::Fulfilled);
+    assert_eq!(client.get_config().fee_bps, 1_000u32);
+}
+
+#[test]
 fn test_payment_request_expired_fulfill_fails() {
     let (env, client, admin, fee_collector, token, token_admin) = setup();
     client.initialize(&admin, &0u32, &fee_collector);

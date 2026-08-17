@@ -272,6 +272,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "fee_bps"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "memo"
                       },
                       "val": {
