@@ -422,16 +422,21 @@ impl StellarSendContract {
 
     /// Split a gross `amount` into (fee, net) using `fee_bps` basis points.
     ///
-    /// fee  = floor(amount * fee_bps / 10_000)
+    /// fee  = ceil(amount * fee_bps / 10_000)
     /// net  = amount – fee
     fn split_fee(amount: i128, fee_bps: u32) -> Result<(i128, i128), StellarSendError> {
         if fee_bps == 0 {
             return Ok((0, amount));
         }
-        let fee = amount
+        let numerator = amount
             .checked_mul(fee_bps as i128)
-            .ok_or(StellarSendError::ArithmeticOverflow)?
-            / 10_000i128;
+            .ok_or(StellarSendError::ArithmeticOverflow)?;
+        
+        let mut fee = numerator / 10_000i128;
+        if numerator % 10_000i128 != 0 {
+            fee = fee.checked_add(1).ok_or(StellarSendError::ArithmeticOverflow)?;
+        }
+
         let net = amount
             .checked_sub(fee)
             .ok_or(StellarSendError::ArithmeticOverflow)?;

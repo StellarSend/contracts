@@ -1251,6 +1251,17 @@ fn test_payment_request_cancel_then_fulfill_fails() {
 }
 
 // ---------------------------------------------------------------------------
+// Fee rounding tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_split_fee_rounds_up_below_threshold() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &1u32, &fee_collector); // 1 bps
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 10_000);
 // Zero-net-transfer guard tests (closes #53)
 //
 // These tests exercise all four call sites at the maximum allowed fee
@@ -1287,6 +1298,144 @@ fn test_send_payment_at_max_fee_skips_zero_net_transfer() {
         &sender,
         &recipient,
         &token,
+        &9_999i128,
+        &String::from_str(&env, "round up below threshold"),
+    );
+
+    assert_eq!(record.fee_amount, 1);
+    assert_eq!(record.net_amount, 9_998);
+}
+
+#[test]
+fn test_split_fee_exact_division() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &1u32, &fee_collector); // 1 bps
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 20_000);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &10_000i128,
+        &String::from_str(&env, "exact division"),
+    );
+
+    assert_eq!(record.fee_amount, 1);
+    assert_eq!(record.net_amount, 9_999);
+}
+
+#[test]
+fn test_split_fee_just_above_boundary() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &1u32, &fee_collector); // 1 bps
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 20_000);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &10_001i128,
+        &String::from_str(&env, "just above boundary"),
+    );
+
+    assert_eq!(record.fee_amount, 2);
+    assert_eq!(record.net_amount, 9_999);
+}
+
+#[test]
+fn test_split_fee_very_small_amount() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &1u32, &fee_collector); // 1 bps
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 10);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &1i128,
+        &String::from_str(&env, "very small amount"),
+    );
+
+    assert_eq!(record.fee_amount, 1);
+    assert_eq!(record.net_amount, 0);
+}
+
+#[test]
+fn test_split_fee_zero_fee_rate() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector); // 0 bps
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 10_000);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &9_999i128,
+        &String::from_str(&env, "zero fee rate"),
+    );
+
+    assert_eq!(record.fee_amount, 0);
+    assert_eq!(record.net_amount, 9_999);
+}
+
+#[test]
+fn test_batch_fee_evasion_regression() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &1u32, &fee_collector); // 1 bps
+
+    let sender = Address::generate(&env);
+    // fund for 50 * 9,999 = 499,950
+    mint(&env, &token, &token_admin, &sender, 499_950);
+
+    let mut payments = vec![&env];
+    for _ in 0..50 {
+        payments.push_back((Address::generate(&env), 9_999i128));
+    }
+
+    // Sender must approve the contract for batch transfer. We don't need token_client for `approve` when it's just a mock setup, wait `client.send_batch_payment` may not require it if it's acting on behalf of sender directly using `from.require_auth()`, wait no, `send_batch_payment` needs sender auth, not token approve. Let's check `test_send_payment_happy_path`. In `send_payment`, it just mocks all auths and calls `client.send_payment`. Wait, `send_batch_payment` does the same. No, wait, some tests use `token_client.approve` like subscriptions, but `send_payment` doesn't need it because it uses `require_auth` on `from`.
+    env.mock_all_auths();
+
+    // Run batch payment
+    client.send_batch_payment(&sender, &token, &payments);
+
+    // Each of the 50 legs should charge 1 fee unit, resulting in 50 fee_collector balance.
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&fee_collector), 50);
+}
+
+#[test]
+fn test_equivalent_single_payment() {
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &1u32, &fee_collector); // 1 bps
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    mint(&env, &token, &token_admin, &sender, 499_950);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
+        &499_950i128,
+        &String::from_str(&env, "equivalent single payment"),
+    );
+
+    // 499,950 * 1 / 10000 = 49.995 => ceil => 50
+    assert_eq!(record.fee_amount, 50);
+    assert_eq!(record.net_amount, 499_900);
+}
         &1_000i128,
         &String::from_str(&env, "max fee test"),
     );
