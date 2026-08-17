@@ -255,3 +255,22 @@ fn test_rejected_wrap_does_not_credit_wrapped_balance() {
     // pre-fix bug would have credited the full requested 1_000.
     assert_eq!(client.get_wrapped_balance(&user), 0);
 }
+
+#[test]
+fn test_rejected_wrap_rolls_back_the_underlying_transfer() {
+    let (env, client, _admin, fee_token) = setup_fee_token();
+
+    let user = Address::generate(&env);
+    fee_token.mint(&user, &1_000);
+
+    let _ = client.try_wrap(&user, &1_000i128);
+
+    // Result::Err from a contract entry point rolls back the whole
+    // invocation atomically in Soroban — the transfer that already ran
+    // before the mismatch was detected is reverted along with the
+    // rejected credit, so the user doesn't lose the fee-shortfall amount
+    // (900) to a contract balance nobody's wrapped-balance ledger
+    // accounts for.
+    assert_eq!(fee_token.balance(&user), 1_000);
+    assert_eq!(fee_token.balance(&client.address), 0);
+}
