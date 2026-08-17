@@ -121,17 +121,36 @@ impl TokenBridgeContract {
             .get(&KEY_UNDER)
             .ok_or(TokenBridgeError::NotInitialized)?;
 
-        // Credit wrapped balance.
-        let new_bal = Self::credit_wrapped(&env, &from, amount)?;
-
-        // Pull underlying tokens into this contract.
         let token_client = token::Client::new(&env, &underlying);
-        token_client.transfer(&from, &env.current_contract_address(), &amount);
+        let contract_address = env.current_contract_address();
+
+        // Measure the contract's real underlying-token balance gain instead
+        // of trusting `amount` — a fee-on-transfer or deflationary
+        // underlying token can deduct more from `from` than it credits to
+        // this contract. Crediting the wrapped balance with the requested
+        // amount rather than what was actually received would silently
+        // under-fund the single shared underlying pool every wrapper's
+        // unwrap draws from, so a later, entirely honest unwrap by a
+        // different user can trap even though their own ledger entry says
+        // they're entitled to it (#54).
+        let balance_before = token_client.balance(&contract_address);
+        token_client.transfer(&from, &contract_address, &amount);
+        let balance_after = token_client.balance(&contract_address);
+        let received = balance_after
+            .checked_sub(balance_before)
+            .ok_or(TokenBridgeError::ArithmeticOverflow)?;
+
+        if received != amount {
+            return Err(TokenBridgeError::UnderlyingTransferShortfall);
+        }
+
+        // Credit wrapped balance with the measured amount actually received.
+        let new_bal = Self::credit_wrapped(&env, &from, received)?;
 
         // Emit Wrapped event.
         env.events().publish(
             (symbol_short!("wrapped"), from.clone()),
-            (underlying, amount),
+            (underlying, received),
         );
 
         Ok(new_bal)
