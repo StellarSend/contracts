@@ -51,6 +51,13 @@ pub enum TokenBridgeError {
     InvalidAmount = 4,
     InsufficientWrappedBalance = 5,
     ArithmeticOverflow = 6,
+    /// The contract's measured underlying-token balance gain from `wrap`'s
+    /// transfer didn't match the requested `amount` — most likely a
+    /// fee-on-transfer or deflationary underlying token deducting more
+    /// than it credited. Distinct from `InvalidAmount` (a bad caller
+    /// input) since this is a mismatch discovered only after actually
+    /// measuring the transfer's real effect (#54).
+    UnderlyingTransferShortfall = 7,
 }
 
 // ---------------------------------------------------------------------------
