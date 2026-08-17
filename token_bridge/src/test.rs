@@ -241,3 +241,17 @@ fn test_wrap_rejects_fee_on_transfer_underlying_shortfall() {
         Err(Ok(TokenBridgeError::UnderlyingTransferShortfall))
     );
 }
+
+#[test]
+fn test_rejected_wrap_does_not_credit_wrapped_balance() {
+    let (env, client, _admin, fee_token) = setup_fee_token();
+
+    let user = Address::generate(&env);
+    fee_token.mint(&user, &1_000);
+
+    let _ = client.try_wrap(&user, &1_000i128);
+
+    // The rejected wrap must not have credited anything, even though the
+    // pre-fix bug would have credited the full requested 1_000.
+    assert_eq!(client.get_wrapped_balance(&user), 0);
+}
