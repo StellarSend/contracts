@@ -10,6 +10,22 @@
 //!
 //! Balances are tracked in persistent storage so they survive ledger closes.
 //!
+//! Underlying-token assumptions
+//! ─────────────────────────────
+//! `underlying_token` is a single address chosen by the caller of
+//! `initialize`, with no restriction on its implementation beyond it
+//! answering the standard SEP-41 interface. `wrap` measures this
+//! contract's actual balance gain around the inbound transfer (rather than
+//! trusting the requested amount) and rejects with
+//! `UnderlyingTransferShortfall` if it doesn't match — so a fee-on-transfer
+//! or deflationary underlying token causes individual `wrap` calls to fail
+//! cleanly instead of silently under-funding the single shared underlying
+//! pool every wrapper's `unwrap` draws from (#54). This bridge does not
+//! attempt to *support* such tokens (there is no partial-credit path); it
+//! only refuses to let one wrapper's misbehaving-token deposit create a
+//! shortfall that a later, unrelated wrapper's honest `unwrap` would pay
+//! for.
+//!
 //! Storage layout
 //! ──────────────
 //! Instance:
