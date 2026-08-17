@@ -188,7 +188,7 @@ cancel_payment_request(env, request_id) -> Result<(), StellarSendError>
 get_payment_request(env, request_id) -> Result<PaymentRequest, StellarSendError>
 ```
 
-`payer` is optional — `None` means anyone can fulfill it. Expired or already-fulfilled/cancelled requests are rejected; the protocol fee is deducted exactly as in `send_payment`.
+`payer` is optional — `None` means anyone can fulfill it. Expired or already-fulfilled/cancelled requests are rejected; the protocol fee is deducted exactly as in `send_payment`. The fee rate is locked in when the request is created, so an admin `set_fee` after creation never retroactively changes what the requester nets — the stored `PaymentRequest.fee_bps` (exposed via `get_payment_request`) is what fulfillment applies.
 
 ### Escrow / conditional transfers
 
@@ -385,6 +385,19 @@ Return the lifetime total of fees collected in `token`.
 #### `wrap(from, amount) → Result<i128, TokenBridgeError>`
 
 Deposit `amount` of underlying token; credit wrapped balance.
+
+Measures the contract's actual underlying-token balance gain around the
+transfer rather than trusting `amount` — a fee-on-transfer or deflationary
+underlying token would otherwise silently under-fund the single shared
+underlying pool every wrapper's `unwrap` draws from. If the measured
+delta doesn't match `amount`, the call is rejected with
+`UnderlyingTransferShortfall` (and, since a `Result::Err` from a contract
+entry point rolls back the whole invocation, the already-executed
+transfer is reverted too — the caller keeps their original balance).
+`underlying_token` is fully caller-chosen at `initialize`; this bridge
+does not attempt to support fee-on-transfer/deflationary tokens, it only
+refuses to let one wrapper's misbehaving-token deposit create a shortfall
+a different, honest wrapper's `unwrap` would later fall into.
 
 #### `unwrap(from, amount) → Result<i128, TokenBridgeError>`
 

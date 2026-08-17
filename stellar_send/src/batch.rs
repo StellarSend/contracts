@@ -52,7 +52,8 @@ impl StellarSendContract {
         let mut total_net: i128 = 0;
         let mut total_fee: i128 = 0;
 
-        // Pass 1: Build records and save to storage
+        // Pass 1: Build records, compute fee splits, and save to storage.
+        // No funds move yet — all validation must pass before any transfer.
         for (recipient, amount) in payments.iter() {
             let (fee_amount, net_amount) = Self::split_fee(amount, config.fee_bps)?;
 
@@ -80,12 +81,18 @@ impl StellarSendContract {
 
         let token_client = token::Client::new(&env, &token);
 
-        // Pass 2: Execute transfers and emit events
+        // Pass 2: Execute transfers and emit per-leg events.
+        // The net-amount guard mirrors the fee leg: a zero-amount transfer is
+        // not required to be accepted by every SEP-41 token implementation.
+        // The record is stored and the event emitted regardless — a 100%-fee
+        // payment with net_amount == 0 is valid, not an error.
         for record in records.iter() {
             if record.fee_amount > 0 {
                 token_client.transfer(&from, &config.fee_collector, &record.fee_amount);
             }
-            token_client.transfer(&from, &record.to, &record.net_amount);
+            if record.net_amount > 0 {
+                token_client.transfer(&from, &record.to, &record.net_amount);
+            }
 
             crate::events::emit_batch_leg_sent(&env, &from, &record.to, &token, record.net_amount, record.fee_amount);
         }
