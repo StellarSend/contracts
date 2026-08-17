@@ -188,7 +188,7 @@ cancel_payment_request(env, request_id) -> Result<(), StellarSendError>
 get_payment_request(env, request_id) -> Result<PaymentRequest, StellarSendError>
 ```
 
-`payer` is optional — `None` means anyone can fulfill it. Expired or already-fulfilled/cancelled requests are rejected; the protocol fee is deducted exactly as in `send_payment`.
+`payer` is optional — `None` means anyone can fulfill it. Expired or already-fulfilled/cancelled requests are rejected; the protocol fee is deducted exactly as in `send_payment`. The fee rate is locked in when the request is created, so an admin `set_fee` after creation never retroactively changes what the requester nets — the stored `PaymentRequest.fee_bps` (exposed via `get_payment_request`) is what fulfillment applies.
 
 ### Escrow / conditional transfers
 

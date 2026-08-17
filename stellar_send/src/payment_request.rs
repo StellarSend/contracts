@@ -6,6 +6,10 @@
 //! logic as `send_payment` so invoiced payments are treated identically to
 //! direct payments for accounting purposes.
 //!
+//! Each request locks in the `fee_bps` in effect when it is created, so a
+//! later admin `set_fee` never retroactively changes what the requester nets
+//! on an already-open invoice.
+//!
 //! Storage
 //! ───────
 //! Instance:
@@ -40,6 +44,11 @@ pub struct PaymentRequest {
     pub memo: String,
     /// Ledger timestamp after which the request can no longer be fulfilled.
     pub expiry: u64,
+    /// Fee in basis points (100 bps = 1 %) locked in when the request was
+    /// created.  The requester prices the invoice against this rate, and
+    /// later admin `set_fee` changes must not retroactively alter what they
+    /// net when the request is eventually fulfilled.
+    pub fee_bps: u32,
     pub status: PaymentRequestStatus,
 }
 
@@ -49,6 +58,10 @@ impl StellarSendContract {
     ///
     /// * `payer`  – Optional address restriction; `None` means anyone may pay.
     /// * `expiry` – Must be a ledger timestamp strictly in the future.
+    ///
+    /// The protocol fee in effect at creation time is captured on the request
+    /// itself, so a later admin `set_fee` cannot change what the requester
+    /// nets when the request is fulfilled.
     pub fn create_payment_request(
         env: Env,
         requester: Address,
@@ -72,6 +85,11 @@ impl StellarSendContract {
             }
         }
 
+        // Lock in the fee rate this invoice was priced against.  This also
+        // guarantees the contract is initialized before any request can be
+        // created.
+        let config = Self::load_config(&env)?;
+
         let id = Self::next_req_id(&env);
         let request = PaymentRequest {
             requester: requester.clone(),
@@ -80,6 +98,7 @@ impl StellarSendContract {
             amount,
             memo,
             expiry,
+            fee_bps: config.fee_bps,
             status: PaymentRequestStatus::Open,
         };
         env.storage().persistent().set(&(KEY_REQ, id), &request);
@@ -91,6 +110,10 @@ impl StellarSendContract {
     /// Fulfil an open, non-expired payment request.  The protocol fee is
     /// deducted exactly as in `send_payment`; the requester receives the
     /// net amount.
+    ///
+    /// The fee is taken at the rate the request locked in at creation time
+    /// (`request.fee_bps`), not whatever the live global fee happens to be
+    /// when the request is finally fulfilled.
     pub fn fulfill_payment_request(
         env: Env,
         request_id: u64,
@@ -116,8 +139,10 @@ impl StellarSendContract {
             }
         }
 
+        // The fee collector is read from the live config (it is where the fee
+        // must go *now*), but the rate itself is the one locked on the request.
         let config = Self::load_config(&env)?;
-        let (fee_amount, net_amount) = Self::split_fee(request.amount, config.fee_bps)?;
+        let (fee_amount, net_amount) = Self::split_fee(request.amount, request.fee_bps)?;
 
         request.status = PaymentRequestStatus::Fulfilled;
         env.storage().persistent().set(&(KEY_REQ, request_id), &request);
