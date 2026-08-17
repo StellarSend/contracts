@@ -56,12 +56,6 @@ impl StellarSendContract {
         for (recipient, amount) in payments.iter() {
             let (fee_amount, net_amount) = Self::split_fee(amount, config.fee_bps)?;
 
-            let seq = Self::next_seq(&env);
-            if fee_amount > 0 {
-                token_client.transfer(&from, &config.fee_collector, &fee_amount);
-            }
-            token_client.transfer(&from, &recipient, &net_amount);
-
             let seq = Self::next_seq(&env, &from);
             let record = PaymentRecord {
                 from: from.clone(),
