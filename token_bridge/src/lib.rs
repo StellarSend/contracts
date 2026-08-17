@@ -38,9 +38,7 @@
 
 #![no_std]
 
-use soroban_sdk::{
-    contract, contractimpl, symbol_short, token, Address, Env, Symbol,
-};
+use soroban_sdk::{contract, contractimpl, symbol_short, token, Address, Env, Symbol};
 
 mod reentrancy;
 
@@ -274,3 +272,6 @@ impl TokenBridgeContract {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod test_fee_token;
