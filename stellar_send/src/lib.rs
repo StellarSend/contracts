@@ -119,6 +119,20 @@ impl StellarSendContract {
     /// * `admin`         – Address that owns admin capabilities.
     /// * `fee_bps`       – Initial fee in basis points (0 – `MAX_FEE_BPS`).
     /// * `fee_collector` – Address of the deployed `fee_collector` contract.
+    ///
+    /// # Security: deploy exclusively through `factory` (#58)
+    ///
+    /// This function cannot verify *who* is calling it — the pinned
+    /// `soroban-sdk` (21.7.7) has neither constructor support nor any API
+    /// for a contract to learn who deployed it, so there is nothing here to
+    /// check a caller against. Called directly against a raw, independently
+    /// deployed instance, `initialize` is front-runnable: anyone watching
+    /// the ledger for the deploy can call it first and seize `admin`
+    /// permanently. Instances MUST be deployed exclusively through the
+    /// `factory` contract's `deploy_stellar_send`, which deploys and calls
+    /// this function atomically within a single host invocation, so no
+    /// externally-observable deployed-but-uninitialized state ever exists.
+    /// See `factory`'s module doc comment for the full rationale.
     pub fn initialize(
         env: Env,
         admin: Address,

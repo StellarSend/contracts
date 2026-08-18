@@ -91,6 +91,21 @@ impl TokenBridgeContract {
     ///
     /// * `admin`            – Can pause/upgrade the bridge in future versions.
     /// * `underlying_token` – The SAC or Soroban token that users deposit.
+    ///
+    /// # Security: deploy exclusively through `factory` (#58)
+    ///
+    /// This function cannot verify *who* is calling it — the pinned
+    /// `soroban-sdk` (21.7.7) has neither constructor support nor any API
+    /// for a contract to learn who deployed it, so there is nothing here to
+    /// check a caller against. Called directly against a raw, independently
+    /// deployed instance, `initialize` is front-runnable: anyone watching
+    /// the ledger for the deploy can call it first, choose an arbitrary
+    /// `underlying_token`, and seize `admin` permanently. Instances MUST be
+    /// deployed exclusively through the `factory` contract's
+    /// `deploy_token_bridge`, which deploys and calls this function
+    /// atomically within a single host invocation, so no
+    /// externally-observable deployed-but-uninitialized state ever exists.
+    /// See `factory`'s module doc comment for the full rationale.
     pub fn initialize(
         env: Env,
         admin: Address,

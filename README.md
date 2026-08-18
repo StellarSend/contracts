@@ -150,6 +150,22 @@ A standalone contract holding funds in on-chain custody until a time or arbiter 
 
 ---
 
+### factory
+
+**Path:** `contracts/factory/`
+
+Deploys and atomically initializes `fee_collector`, `token_bridge`, and
+`stellar_send` instances, closing the front-runnable `initialize()` window
+described in #58. See [Deployment](#deployment) and the crate's module doc
+comment for the full rationale.
+
+| Feature | Description |
+|---|---|
+| Atomic deploy + init | `deploy_fee_collector` / `deploy_token_bridge` / `deploy_stellar_send` deploy the child contract and call its `initialize` within one host invocation |
+| Admin-gated | Every `deploy_*` call requires this factory's own `admin` to authorize |
+
+---
+
 ## Differentiator Features
 
 StellarSend isn't just a wallet — these on-chain building blocks are what any plain Stellar wallet can't do. All four are implemented directly in the contracts in this repo (`stellar_send` for subscriptions/batch/requests, a new `escrow` crate for conditional transfers), with unit tests covering the happy path and at least one failure case each.
@@ -278,29 +294,39 @@ cargo test -p stellar_send -- --nocapture
 
 ## Deployment
 
+`fee_collector`, `token_bridge`, and `stellar_send` are deployed and
+initialized exclusively through the **`factory`** contract (`contracts/factory/`).
+Deploying and initializing a Soroban contract are two independently-authorized
+steps; calling any of these three contracts' own `initialize` directly against
+a raw, independently deployed instance is front-runnable — anyone watching the
+ledger for the deploy can call `initialize` first and permanently seize
+`admin` (#58). `factory` closes this by deploying and initializing each
+instance atomically within a single host invocation, so no
+deployed-but-uninitialized state is ever observable on-chain. See
+`contracts/factory/src/lib.rs`'s module doc comment for the full rationale,
+and each contract's own `initialize` doc comment for why it can't defend
+itself against this directly (the pinned `soroban-sdk` gives it no way to).
+
 ### Testnet
 
 ```bash
 # Set environment
 export STELLAR_NETWORK=testnet
 export STELLAR_RPC_URL=https://soroban-testnet.stellar.org
-export STELLAR_ACCOUNT=<your-secret-key>
+export STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+export STELLAR_ACCOUNT=<your-secret-key-or-identity>
 
-# Deploy fee_collector first (stellar_send depends on its address)
-bash scripts/deploy.sh fee_collector
-
-# Deploy token_bridge
-bash scripts/deploy.sh token_bridge
-
-# Deploy stellar_send, passing fee_collector address
-bash scripts/deploy.sh stellar_send <fee_collector_address>
+# Deploys factory, then fee_collector, token_bridge, and stellar_send
+# through it — see scripts/deploy.sh for the exact factory calls made.
+bash scripts/deploy.sh [treasury_address] [underlying_token_address]
 ```
 
 ### Mainnet
 
-Same steps as testnet; update `STELLAR_NETWORK=mainnet` and `STELLAR_RPC_URL=https://horizon.stellar.org`.
+Same steps as testnet; update `STELLAR_NETWORK=mainnet`, `STELLAR_RPC_URL`,
+and `STELLAR_NETWORK_PASSPHRASE` for mainnet.
 
-> **Note:** Mainnet deployments require a multi-sig admin key. Refer to the [Security](#security) section.
+> **Note:** Mainnet deployments require a multi-sig admin key. Refer to the [Security](#security) section. Deploying and initializing the `factory` contract itself remains two separate steps — see its module doc comment for why that residual window is accepted.
 
 ---
 
@@ -314,6 +340,8 @@ Initialise the contract. Must be called exactly once by `admin`.
 
 - `fee_bps`: Protocol fee in basis points. Range: `0..=MAX_FEE_BPS` (currently 1,000, i.e. 10% max).
 - `fee_collector`: Address of the deployed `fee_collector` contract.
+
+> **Deploy via `factory` only** — see [Deployment](#deployment). Calling this directly against a raw deployed instance is front-runnable (#58).
 
 #### `send_payment(from, to, token, amount, memo) → Result<PaymentRecord, StellarSendError>`
 
@@ -360,6 +388,8 @@ for the given `(from, seq)` pair.
 
 #### `initialize(admin, treasury) → Result<(), FeeCollectorError>`
 
+> **Deploy via `factory` only** — see [Deployment](#deployment). Calling this directly against a raw deployed instance is front-runnable (#58), and this contract has no admin-rotation mechanism (#40), so that has no recovery path short of a full redeploy.
+
 #### `collect_fee(token, amount) → Result<(), FeeCollectorError>`
 
 Record fee receipt. The token transfer must already have been made by `stellar_send`.
@@ -381,6 +411,8 @@ Return the lifetime total of fees collected in `token`.
 ### token\_bridge
 
 #### `initialize(admin, underlying_token) → Result<(), TokenBridgeError>`
+
+> **Deploy via `factory` only** — see [Deployment](#deployment). Calling this directly against a raw deployed instance is front-runnable (#58).
 
 #### `wrap(from, amount) → Result<i128, TokenBridgeError>`
 
@@ -439,6 +471,10 @@ soroban events --contract-id <CONTRACT_ID> --network testnet
 - All admin keys should be multi-sig accounts on mainnet.
 - Admin rotation uses a two-step propose/accept pattern to prevent key loss.
 - The `fee_collector` treasury address is separate from the admin key.
+- `fee_collector`, `token_bridge`, and `stellar_send` must be deployed
+  exclusively through the `factory` contract — see [Deployment](#deployment).
+  Deploying any of them any other way reopens the front-runnable
+  `initialize()` window described in #58.
 
 ### Audit status
 
@@ -447,6 +483,7 @@ soroban events --contract-id <CONTRACT_ID> --network testnet
 | stellar\_send | — | In progress |
 | fee\_collector | — | In progress |
 | token\_bridge | — | In progress |
+| factory | — | In progress |
 
 ### Reporting vulnerabilities
 
