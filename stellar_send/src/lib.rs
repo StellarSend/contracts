@@ -58,6 +58,29 @@ const KEY_SUB_SEQ: Symbol = symbol_short!("SUBSEQ");
 /// Persistent key prefix: (KEY_SUB, id) → Subscription.
 const KEY_SUB: Symbol = symbol_short!("SUB");
 
+/// Per-payer subscription index (#48), so a payer's outstanding recurring
+/// pull-authorizations can be enumerated on-chain without replaying
+/// `sub_new` events off-chain. Deliberately *not* a single growing
+/// `(KEY_PAYER_SUB, payer) → Vec<u64>` entry (the issue's own sketch) — that
+/// would make every `create_subscription` call re-read and re-write a
+/// payer's *entire* history, an unbounded and ever-growing write cost with
+/// no bound as a payer accumulates subscriptions over time. Individually
+/// keyed entries make both the append (`create_subscription`) and the read
+/// (`get_subscriptions_for_payer`) O(1)/O(page size) regardless of how many
+/// subscriptions a payer has ever created:
+///   (KEY_PAYER_SUB_COUNT, payer) → u32   — count of ids ever recorded
+///   (KEY_PAYER_SUB, payer, index) → u64  — the id at that index
+const KEY_PAYER_SUB_COUNT: Symbol = symbol_short!("PSUBCNT");
+const KEY_PAYER_SUB: Symbol = symbol_short!("PSUB");
+
+/// Same idea as the payer index above, but keyed by `recipient` — a
+/// recipient auditing what recurring income they're set up to receive.
+/// Explicitly the lower-priority half of #48 (the payer side is the
+/// security-critical one, since that's whose funds are pulled), but cheap
+/// to add symmetrically once the payer-side infrastructure exists.
+const KEY_RECIPIENT_SUB_COUNT: Symbol = symbol_short!("RSUBCNT");
+const KEY_RECIPIENT_SUB: Symbol = symbol_short!("RSUB");
+
 /// Global counter for payment-request ids (instance storage).
 const KEY_REQ_SEQ: Symbol = symbol_short!("REQSEQ");
 /// Persistent key prefix: (KEY_REQ, id) → PaymentRequest.
