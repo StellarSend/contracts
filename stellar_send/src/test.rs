@@ -12,8 +12,8 @@ use soroban_sdk::{
 };
 
 use crate::{
-    ContractConfig, PaymentRequestStatus, StellarSendContract, StellarSendContractClient,
-    StellarSendError, MAX_FEE_BPS,
+    subscription::MAX_SUBSCRIPTIONS_PAGE, ContractConfig, PaymentRequestStatus,
+    StellarSendContract, StellarSendContractClient, StellarSendError, MAX_FEE_BPS,
 };
 
 // ---------------------------------------------------------------------------
@@ -652,6 +652,107 @@ fn test_get_subscriptions_for_payer_enumerates_only_that_payers_ids() {
     assert_eq!(client.get_payer_subscription_count(&payer_c), 0);
     let c_ids = client.get_subscriptions_for_payer(&payer_c, &0u32, &10u32);
     assert_eq!(c_ids, vec![&env]);
+}
+
+#[test]
+fn test_get_subscriptions_for_recipient_enumerates_only_that_recipients_ids() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient_a = Address::generate(&env);
+    let recipient_b = Address::generate(&env);
+    let recipient_c = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    let id_a1 = client.create_subscription(
+        &payer,
+        &recipient_a,
+        &token,
+        &1_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+    let id_a2 = client.create_subscription(
+        &payer,
+        &recipient_a,
+        &token,
+        &2_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+    let id_b1 = client.create_subscription(
+        &payer,
+        &recipient_b,
+        &token,
+        &3_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+
+    assert_eq!(client.get_recipient_subscription_count(&recipient_a), 2);
+    let a_ids = client.get_subscriptions_for_recipient(&recipient_a, &0u32, &10u32);
+    assert_eq!(a_ids, vec![&env, id_a1, id_a2]);
+
+    assert_eq!(client.get_recipient_subscription_count(&recipient_b), 1);
+    let b_ids = client.get_subscriptions_for_recipient(&recipient_b, &0u32, &10u32);
+    assert_eq!(b_ids, vec![&env, id_b1]);
+
+    // A recipient with zero subscriptions gets an empty result, not an error.
+    assert_eq!(client.get_recipient_subscription_count(&recipient_c), 0);
+    let c_ids = client.get_subscriptions_for_recipient(&recipient_c, &0u32, &10u32);
+    assert_eq!(c_ids, vec![&env]);
+}
+
+#[test]
+fn test_get_subscriptions_for_payer_pagination_edge_cases() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    // Create more subscriptions than MAX_SUBSCRIPTIONS_PAGE so a single
+    // over-sized request must be clamped rather than trapping on a runaway
+    // page size.
+    let total = MAX_SUBSCRIPTIONS_PAGE + 5;
+    for i in 0..total {
+        client.create_subscription(
+            &payer,
+            &recipient,
+            &token,
+            &(1_000i128 + i as i128),
+            &600u64,
+            &start,
+            &None,
+            &None,
+        );
+    }
+    assert_eq!(client.get_payer_subscription_count(&payer), total);
+
+    // A requested limit far above MAX_SUBSCRIPTIONS_PAGE is clamped, not
+    // honored or rejected.
+    let first_page = client.get_subscriptions_for_payer(&payer, &0u32, &(total * 10));
+    assert_eq!(first_page.len(), MAX_SUBSCRIPTIONS_PAGE);
+
+    // The remainder is reachable via a second page starting where the first
+    // left off.
+    let second_page = client.get_subscriptions_for_payer(&payer, &MAX_SUBSCRIPTIONS_PAGE, &10u32);
+    assert_eq!(second_page.len(), 5);
+
+    // start_index at or beyond the payer's total count returns an empty
+    // Vec, not an error.
+    let at_count = client.get_subscriptions_for_payer(&payer, &total, &10u32);
+    assert_eq!(at_count, vec![&env]);
+    let beyond_count = client.get_subscriptions_for_payer(&payer, &(total + 100), &10u32);
+    assert_eq!(beyond_count, vec![&env]);
 }
 
 #[test]
