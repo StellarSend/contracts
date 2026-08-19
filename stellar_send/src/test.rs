@@ -617,6 +617,44 @@ fn test_subscription_cancel_then_execute_fails() {
 }
 
 #[test]
+fn test_get_subscriptions_for_payer_enumerates_only_that_payers_ids() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer_a = Address::generate(&env);
+    let payer_b = Address::generate(&env);
+    let payer_c = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    let id_a1 = client.create_subscription(
+        &payer_a, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
+    let id_a2 = client.create_subscription(
+        &payer_a, &recipient, &token, &2_000i128, &600u64, &start, &None, &None,
+    );
+    let id_a3 = client.create_subscription(
+        &payer_a, &recipient, &token, &3_000i128, &600u64, &start, &None, &None,
+    );
+    let id_b1 = client.create_subscription(
+        &payer_b, &recipient, &token, &4_000i128, &600u64, &start, &None, &None,
+    );
+
+    assert_eq!(client.get_payer_subscription_count(&payer_a), 3);
+    let a_ids = client.get_subscriptions_for_payer(&payer_a, &0u32, &10u32);
+    assert_eq!(a_ids, vec![&env, id_a1, id_a2, id_a3]);
+
+    assert_eq!(client.get_payer_subscription_count(&payer_b), 1);
+    let b_ids = client.get_subscriptions_for_payer(&payer_b, &0u32, &10u32);
+    assert_eq!(b_ids, vec![&env, id_b1]);
+
+    // A payer with zero subscriptions gets an empty result, not an error.
+    assert_eq!(client.get_payer_subscription_count(&payer_c), 0);
+    let c_ids = client.get_subscriptions_for_payer(&payer_c, &0u32, &10u32);
+    assert_eq!(c_ids, vec![&env]);
+}
+
+#[test]
 fn test_subscription_invalid_max_executions_zero_rejected() {
     let (env, client, admin, fee_collector, token, _token_admin) = setup();
     client.initialize(&admin, &0u32, &fee_collector);
