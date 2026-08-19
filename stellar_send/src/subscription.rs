@@ -332,6 +332,38 @@ impl StellarSendContract {
             .unwrap_or(0)
     }
 
+    /// Mirrors `get_subscriptions_for_payer`, keyed by `recipient` instead —
+    /// a recipient auditing what recurring income they're set up to
+    /// receive. Same paging/inclusion semantics.
+    pub fn get_subscriptions_for_recipient(
+        env: Env,
+        recipient: Address,
+        start_index: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&(KEY_RECIPIENT_SUB_COUNT, recipient.clone()))
+            .unwrap_or(0);
+        Self::collect_subscription_page(
+            &env,
+            KEY_RECIPIENT_SUB,
+            &recipient,
+            start_index,
+            limit,
+            count,
+        )
+    }
+
+    /// Mirrors `get_payer_subscription_count`, keyed by `recipient` instead.
+    pub fn get_recipient_subscription_count(env: Env, recipient: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&(KEY_RECIPIENT_SUB_COUNT, recipient))
+            .unwrap_or(0)
+    }
+
     /// Shared paging logic for both the payer- and recipient-side indexes:
     /// reads at most `MAX_SUBSCRIPTIONS_PAGE` entries starting at
     /// `start_index`, from `(prefix, address, index) → u64` storage,
