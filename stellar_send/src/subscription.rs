@@ -66,7 +66,7 @@ use soroban_sdk::{contractimpl, contracttype, token, Address, Env, Vec};
 
 use crate::{
     StellarSendContract, StellarSendContractClient, StellarSendError, KEY_PAYER_SUB,
-    KEY_PAYER_SUB_COUNT, KEY_SUB, KEY_SUB_SEQ,
+    KEY_PAYER_SUB_COUNT, KEY_RECIPIENT_SUB, KEY_RECIPIENT_SUB_COUNT, KEY_SUB, KEY_SUB_SEQ,
 };
 
 /// Cap on how many ids `get_subscriptions_for_payer`/`get_subscriptions_for_recipient`
@@ -172,6 +172,7 @@ impl StellarSendContract {
 
         env.storage().persistent().set(&(KEY_SUB, id), &sub);
         Self::record_payer_subscription(&env, &payer, id);
+        Self::record_recipient_subscription(&env, &recipient, id);
 
         crate::events::emit_subscription_created(
             &env,
@@ -383,6 +384,16 @@ impl StellarSendContract {
         env.storage()
             .persistent()
             .set(&(KEY_PAYER_SUB, payer.clone(), count), &id);
+        env.storage().persistent().set(&count_key, &(count + 1));
+    }
+
+    /// Mirrors `record_payer_subscription`, keyed by `recipient` instead.
+    fn record_recipient_subscription(env: &Env, recipient: &Address, id: u64) {
+        let count_key = (KEY_RECIPIENT_SUB_COUNT, recipient.clone());
+        let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&(KEY_RECIPIENT_SUB, recipient.clone(), count), &id);
         env.storage().persistent().set(&count_key, &(count + 1));
     }
 }
