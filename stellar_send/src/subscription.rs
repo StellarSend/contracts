@@ -62,11 +62,19 @@
 //! Persistent:
 //!   (KEY_SUB, id) → Subscription
 
-use soroban_sdk::{contractimpl, contracttype, token, Address, Env};
+use soroban_sdk::{contractimpl, contracttype, token, Address, Env, Vec};
 
 use crate::{
-    StellarSendContract, StellarSendContractClient, StellarSendError, KEY_SUB, KEY_SUB_SEQ,
+    StellarSendContract, StellarSendContractClient, StellarSendError, KEY_PAYER_SUB,
+    KEY_PAYER_SUB_COUNT, KEY_RECIPIENT_SUB, KEY_RECIPIENT_SUB_COUNT, KEY_SUB, KEY_SUB_SEQ,
 };
+
+/// Cap on how many ids `get_subscriptions_for_payer`/`get_subscriptions_for_recipient`
+/// return in a single call, regardless of the requested `limit` — a payer/recipient
+/// with more subscriptions than this needs multiple calls (`start_index` +=
+/// this constant) rather than one call risking Soroban's per-invocation
+/// resource limits (#48).
+pub const MAX_SUBSCRIPTIONS_PAGE: u32 = 50;
 
 /// A recurring payment authorised by `payer`.
 #[contracttype]
@@ -163,6 +171,8 @@ impl StellarSendContract {
         };
 
         env.storage().persistent().set(&(KEY_SUB, id), &sub);
+        Self::record_payer_subscription(&env, &payer, id);
+        Self::record_recipient_subscription(&env, &recipient, id);
 
         crate::events::emit_subscription_created(
             &env,
@@ -284,6 +294,104 @@ impl StellarSendContract {
         Self::load_subscription(&env, id)
     }
 
+    /// Returns a page of `payer`'s subscription ids, in creation order,
+    /// starting at `start_index` and containing at most
+    /// `MAX_SUBSCRIPTIONS_PAGE` ids regardless of the requested `limit`
+    /// (#48). `start_index` at or beyond `payer`'s total count returns an
+    /// empty `Vec`, not an error — a payer with no subscriptions at all is
+    /// indistinguishable, by design, from one whose ids have all already
+    /// been paged through.
+    ///
+    /// Includes ids for subscriptions that are no longer `active`
+    /// (cancelled, or auto-deactivated at `max_executions`) — "no longer
+    /// active" is itself useful information a payer auditing their
+    /// authorizations wants to see, distinguishing it from "never existed".
+    /// Call `get_subscription` on each returned id (or filter client-side)
+    /// to find the currently-live ones.
+    pub fn get_subscriptions_for_payer(
+        env: Env,
+        payer: Address,
+        start_index: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&(KEY_PAYER_SUB_COUNT, payer.clone()))
+            .unwrap_or(0);
+        Self::collect_subscription_page(&env, KEY_PAYER_SUB, &payer, start_index, limit, count)
+    }
+
+    /// Total number of subscriptions `payer` has ever created (active or
+    /// not) — lets a caller know how many pages `get_subscriptions_for_payer`
+    /// will take without guessing from empty-page results.
+    pub fn get_payer_subscription_count(env: Env, payer: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&(KEY_PAYER_SUB_COUNT, payer))
+            .unwrap_or(0)
+    }
+
+    /// Mirrors `get_subscriptions_for_payer`, keyed by `recipient` instead —
+    /// a recipient auditing what recurring income they're set up to
+    /// receive. Same paging/inclusion semantics.
+    pub fn get_subscriptions_for_recipient(
+        env: Env,
+        recipient: Address,
+        start_index: u32,
+        limit: u32,
+    ) -> Vec<u64> {
+        let count: u32 = env
+            .storage()
+            .persistent()
+            .get(&(KEY_RECIPIENT_SUB_COUNT, recipient.clone()))
+            .unwrap_or(0);
+        Self::collect_subscription_page(
+            &env,
+            KEY_RECIPIENT_SUB,
+            &recipient,
+            start_index,
+            limit,
+            count,
+        )
+    }
+
+    /// Mirrors `get_payer_subscription_count`, keyed by `recipient` instead.
+    pub fn get_recipient_subscription_count(env: Env, recipient: Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&(KEY_RECIPIENT_SUB_COUNT, recipient))
+            .unwrap_or(0)
+    }
+
+    /// Shared paging logic for both the payer- and recipient-side indexes:
+    /// reads at most `MAX_SUBSCRIPTIONS_PAGE` entries starting at
+    /// `start_index`, from `(prefix, address, index) → u64` storage,
+    /// stopping at `total` (that address's recorded count).
+    fn collect_subscription_page(
+        env: &Env,
+        prefix: soroban_sdk::Symbol,
+        address: &Address,
+        start_index: u32,
+        limit: u32,
+        total: u32,
+    ) -> Vec<u64> {
+        let capped_limit = limit.min(MAX_SUBSCRIPTIONS_PAGE);
+        let end = start_index.saturating_add(capped_limit).min(total);
+
+        let mut ids = Vec::new(env);
+        for i in start_index..end {
+            if let Some(id) = env
+                .storage()
+                .persistent()
+                .get(&(prefix.clone(), address.clone(), i))
+            {
+                ids.push_back(id);
+            }
+        }
+        ids
+    }
+
     fn load_subscription(env: &Env, id: u64) -> Result<Subscription, StellarSendError> {
         env.storage()
             .persistent()
@@ -296,5 +404,28 @@ impl StellarSendContract {
         let next = seq.wrapping_add(1);
         env.storage().instance().set(&KEY_SUB_SEQ, &next);
         next
+    }
+
+    /// Appends `id` to `payer`'s subscription index (#48). O(1): reads only
+    /// `payer`'s own count, writes one new `(KEY_PAYER_SUB, payer, index)`
+    /// entry plus the incremented count — never touches, or even loads, any
+    /// of `payer`'s previously-recorded ids.
+    fn record_payer_subscription(env: &Env, payer: &Address, id: u64) {
+        let count_key = (KEY_PAYER_SUB_COUNT, payer.clone());
+        let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&(KEY_PAYER_SUB, payer.clone(), count), &id);
+        env.storage().persistent().set(&count_key, &(count + 1));
+    }
+
+    /// Mirrors `record_payer_subscription`, keyed by `recipient` instead.
+    fn record_recipient_subscription(env: &Env, recipient: &Address, id: u64) {
+        let count_key = (KEY_RECIPIENT_SUB_COUNT, recipient.clone());
+        let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&(KEY_RECIPIENT_SUB, recipient.clone(), count), &id);
+        env.storage().persistent().set(&count_key, &(count + 1));
     }
 }

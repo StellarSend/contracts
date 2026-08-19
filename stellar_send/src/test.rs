@@ -12,8 +12,8 @@ use soroban_sdk::{
 };
 
 use crate::{
-    ContractConfig, PaymentRequestStatus, StellarSendContract, StellarSendContractClient,
-    StellarSendError, MAX_FEE_BPS,
+    subscription::MAX_SUBSCRIPTIONS_PAGE, ContractConfig, PaymentRequestStatus,
+    StellarSendContract, StellarSendContractClient, StellarSendError, MAX_FEE_BPS,
 };
 
 // ---------------------------------------------------------------------------
@@ -614,6 +614,145 @@ fn test_subscription_cancel_then_execute_fails() {
 
     let result = client.try_execute_subscription(&id);
     assert_eq!(result, Err(Ok(StellarSendError::SubscriptionInactive)));
+}
+
+#[test]
+fn test_get_subscriptions_for_payer_enumerates_only_that_payers_ids() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer_a = Address::generate(&env);
+    let payer_b = Address::generate(&env);
+    let payer_c = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    let id_a1 = client.create_subscription(
+        &payer_a, &recipient, &token, &1_000i128, &600u64, &start, &None, &None,
+    );
+    let id_a2 = client.create_subscription(
+        &payer_a, &recipient, &token, &2_000i128, &600u64, &start, &None, &None,
+    );
+    let id_a3 = client.create_subscription(
+        &payer_a, &recipient, &token, &3_000i128, &600u64, &start, &None, &None,
+    );
+    let id_b1 = client.create_subscription(
+        &payer_b, &recipient, &token, &4_000i128, &600u64, &start, &None, &None,
+    );
+
+    assert_eq!(client.get_payer_subscription_count(&payer_a), 3);
+    let a_ids = client.get_subscriptions_for_payer(&payer_a, &0u32, &10u32);
+    assert_eq!(a_ids, vec![&env, id_a1, id_a2, id_a3]);
+
+    assert_eq!(client.get_payer_subscription_count(&payer_b), 1);
+    let b_ids = client.get_subscriptions_for_payer(&payer_b, &0u32, &10u32);
+    assert_eq!(b_ids, vec![&env, id_b1]);
+
+    // A payer with zero subscriptions gets an empty result, not an error.
+    assert_eq!(client.get_payer_subscription_count(&payer_c), 0);
+    let c_ids = client.get_subscriptions_for_payer(&payer_c, &0u32, &10u32);
+    assert_eq!(c_ids, vec![&env]);
+}
+
+#[test]
+fn test_get_subscriptions_for_recipient_enumerates_only_that_recipients_ids() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient_a = Address::generate(&env);
+    let recipient_b = Address::generate(&env);
+    let recipient_c = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    let id_a1 = client.create_subscription(
+        &payer,
+        &recipient_a,
+        &token,
+        &1_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+    let id_a2 = client.create_subscription(
+        &payer,
+        &recipient_a,
+        &token,
+        &2_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+    let id_b1 = client.create_subscription(
+        &payer,
+        &recipient_b,
+        &token,
+        &3_000i128,
+        &600u64,
+        &start,
+        &None,
+        &None,
+    );
+
+    assert_eq!(client.get_recipient_subscription_count(&recipient_a), 2);
+    let a_ids = client.get_subscriptions_for_recipient(&recipient_a, &0u32, &10u32);
+    assert_eq!(a_ids, vec![&env, id_a1, id_a2]);
+
+    assert_eq!(client.get_recipient_subscription_count(&recipient_b), 1);
+    let b_ids = client.get_subscriptions_for_recipient(&recipient_b, &0u32, &10u32);
+    assert_eq!(b_ids, vec![&env, id_b1]);
+
+    // A recipient with zero subscriptions gets an empty result, not an error.
+    assert_eq!(client.get_recipient_subscription_count(&recipient_c), 0);
+    let c_ids = client.get_subscriptions_for_recipient(&recipient_c, &0u32, &10u32);
+    assert_eq!(c_ids, vec![&env]);
+}
+
+#[test]
+fn test_get_subscriptions_for_payer_pagination_edge_cases() {
+    let (env, client, admin, fee_collector, token, _token_admin) = setup();
+    client.initialize(&admin, &0u32, &fee_collector);
+
+    let payer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let start = env.ledger().timestamp();
+
+    // Create more subscriptions than MAX_SUBSCRIPTIONS_PAGE so a single
+    // over-sized request must be clamped rather than trapping on a runaway
+    // page size.
+    let total = MAX_SUBSCRIPTIONS_PAGE + 5;
+    for i in 0..total {
+        client.create_subscription(
+            &payer,
+            &recipient,
+            &token,
+            &(1_000i128 + i as i128),
+            &600u64,
+            &start,
+            &None,
+            &None,
+        );
+    }
+    assert_eq!(client.get_payer_subscription_count(&payer), total);
+
+    // A requested limit far above MAX_SUBSCRIPTIONS_PAGE is clamped, not
+    // honored or rejected.
+    let first_page = client.get_subscriptions_for_payer(&payer, &0u32, &(total * 10));
+    assert_eq!(first_page.len(), MAX_SUBSCRIPTIONS_PAGE);
+
+    // The remainder is reachable via a second page starting where the first
+    // left off.
+    let second_page = client.get_subscriptions_for_payer(&payer, &MAX_SUBSCRIPTIONS_PAGE, &10u32);
+    assert_eq!(second_page.len(), 5);
+
+    // start_index at or beyond the payer's total count returns an empty
+    // Vec, not an error.
+    let at_count = client.get_subscriptions_for_payer(&payer, &total, &10u32);
+    assert_eq!(at_count, vec![&env]);
+    let beyond_count = client.get_subscriptions_for_payer(&payer, &(total + 100), &10u32);
+    assert_eq!(beyond_count, vec![&env]);
 }
 
 #[test]
@@ -1262,37 +1401,6 @@ fn test_split_fee_rounds_up_below_threshold() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
     mint(&env, &token, &token_admin, &sender, 10_000);
-// Zero-net-transfer guard tests (closes #53)
-//
-// These tests exercise all four call sites at the maximum allowed fee
-// (MAX_FEE_BPS = 1_000 bps / 10%) to confirm:
-//   1. The net-amount guard (`if net_amount > 0`) is symmetric with the
-//      existing fee-amount guard — both legs are now conditionally transferred.
-//   2. Payments succeed cleanly at the ceiling fee, producing correct
-//      fee/net splits (fee = 10% of gross, net = 90% of gross).
-//
-// Prior to MAX_FEE_BPS being capped at 1_000, a fee of 10_000 bps (100%)
-// made net_amount == 0 reachable on every payment, and the unconditional
-// `token_client.transfer(..., &net_amount)` call could trap on any SEP-41
-// token implementation that (validly) rejects zero-amount transfers.  The
-// guard added by this fix is defense-in-depth for that case; with
-// MAX_FEE_BPS = 1_000, net_amount == 0 is no longer reachable through the
-// public API, but the guard keeps the code correct if the ceiling is ever
-// raised again, and removes the asymmetry that made the fee leg safe while
-// leaving the net leg unsafe.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_send_payment_at_max_fee_skips_zero_net_transfer() {
-    // Confirm send_payment at MAX_FEE_BPS (10%) succeeds, produces correct
-    // fee/net split, and transfers only the nonzero net amount to recipient.
-    let (env, client, admin, fee_collector, token, token_admin) = setup();
-    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
-
-    let sender = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    // Use a round amount so the 10% fee is exact: 1_000 gross → 100 fee, 900 net.
-    mint(&env, &token, &token_admin, &sender, 1_000);
 
     let record = client.send_payment(
         &sender,
@@ -1436,6 +1544,44 @@ fn test_equivalent_single_payment() {
     assert_eq!(record.fee_amount, 50);
     assert_eq!(record.net_amount, 499_900);
 }
+
+// ---------------------------------------------------------------------------
+// Zero-net-transfer guard tests (closes #53)
+//
+// These tests exercise all four call sites at the maximum allowed fee
+// (MAX_FEE_BPS = 1_000 bps / 10%) to confirm:
+//   1. The net-amount guard (`if net_amount > 0`) is symmetric with the
+//      existing fee-amount guard — both legs are now conditionally transferred.
+//   2. Payments succeed cleanly at the ceiling fee, producing correct
+//      fee/net splits (fee = 10% of gross, net = 90% of gross).
+//
+// Prior to MAX_FEE_BPS being capped at 1_000, a fee of 10_000 bps (100%)
+// made net_amount == 0 reachable on every payment, and the unconditional
+// `token_client.transfer(..., &net_amount)` call could trap on any SEP-41
+// token implementation that (validly) rejects zero-amount transfers.  The
+// guard added by this fix is defense-in-depth for that case; with
+// MAX_FEE_BPS = 1_000, net_amount == 0 is no longer reachable through the
+// public API, but the guard keeps the code correct if the ceiling is ever
+// raised again, and removes the asymmetry that made the fee leg safe while
+// leaving the net leg unsafe.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_send_payment_at_max_fee_skips_zero_net_transfer() {
+    // Confirm send_payment at MAX_FEE_BPS (10%) succeeds, produces correct
+    // fee/net split, and transfers only the nonzero net amount to recipient.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    // Use a round amount so the 10% fee is exact: 1_000 gross → 100 fee, 900 net.
+    mint(&env, &token, &token_admin, &sender, 1_000);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
         &1_000i128,
         &String::from_str(&env, "max fee test"),
     );
