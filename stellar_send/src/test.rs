@@ -1262,37 +1262,6 @@ fn test_split_fee_rounds_up_below_threshold() {
     let sender = Address::generate(&env);
     let recipient = Address::generate(&env);
     mint(&env, &token, &token_admin, &sender, 10_000);
-// Zero-net-transfer guard tests (closes #53)
-//
-// These tests exercise all four call sites at the maximum allowed fee
-// (MAX_FEE_BPS = 1_000 bps / 10%) to confirm:
-//   1. The net-amount guard (`if net_amount > 0`) is symmetric with the
-//      existing fee-amount guard — both legs are now conditionally transferred.
-//   2. Payments succeed cleanly at the ceiling fee, producing correct
-//      fee/net splits (fee = 10% of gross, net = 90% of gross).
-//
-// Prior to MAX_FEE_BPS being capped at 1_000, a fee of 10_000 bps (100%)
-// made net_amount == 0 reachable on every payment, and the unconditional
-// `token_client.transfer(..., &net_amount)` call could trap on any SEP-41
-// token implementation that (validly) rejects zero-amount transfers.  The
-// guard added by this fix is defense-in-depth for that case; with
-// MAX_FEE_BPS = 1_000, net_amount == 0 is no longer reachable through the
-// public API, but the guard keeps the code correct if the ceiling is ever
-// raised again, and removes the asymmetry that made the fee leg safe while
-// leaving the net leg unsafe.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_send_payment_at_max_fee_skips_zero_net_transfer() {
-    // Confirm send_payment at MAX_FEE_BPS (10%) succeeds, produces correct
-    // fee/net split, and transfers only the nonzero net amount to recipient.
-    let (env, client, admin, fee_collector, token, token_admin) = setup();
-    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
-
-    let sender = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    // Use a round amount so the 10% fee is exact: 1_000 gross → 100 fee, 900 net.
-    mint(&env, &token, &token_admin, &sender, 1_000);
 
     let record = client.send_payment(
         &sender,
@@ -1436,6 +1405,44 @@ fn test_equivalent_single_payment() {
     assert_eq!(record.fee_amount, 50);
     assert_eq!(record.net_amount, 499_900);
 }
+
+// ---------------------------------------------------------------------------
+// Zero-net-transfer guard tests (closes #53)
+//
+// These tests exercise all four call sites at the maximum allowed fee
+// (MAX_FEE_BPS = 1_000 bps / 10%) to confirm:
+//   1. The net-amount guard (`if net_amount > 0`) is symmetric with the
+//      existing fee-amount guard — both legs are now conditionally transferred.
+//   2. Payments succeed cleanly at the ceiling fee, producing correct
+//      fee/net splits (fee = 10% of gross, net = 90% of gross).
+//
+// Prior to MAX_FEE_BPS being capped at 1_000, a fee of 10_000 bps (100%)
+// made net_amount == 0 reachable on every payment, and the unconditional
+// `token_client.transfer(..., &net_amount)` call could trap on any SEP-41
+// token implementation that (validly) rejects zero-amount transfers.  The
+// guard added by this fix is defense-in-depth for that case; with
+// MAX_FEE_BPS = 1_000, net_amount == 0 is no longer reachable through the
+// public API, but the guard keeps the code correct if the ceiling is ever
+// raised again, and removes the asymmetry that made the fee leg safe while
+// leaving the net leg unsafe.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_send_payment_at_max_fee_skips_zero_net_transfer() {
+    // Confirm send_payment at MAX_FEE_BPS (10%) succeeds, produces correct
+    // fee/net split, and transfers only the nonzero net amount to recipient.
+    let (env, client, admin, fee_collector, token, token_admin) = setup();
+    client.initialize(&admin, &MAX_FEE_BPS, &fee_collector); // 10% fee
+
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    // Use a round amount so the 10% fee is exact: 1_000 gross → 100 fee, 900 net.
+    mint(&env, &token, &token_admin, &sender, 1_000);
+
+    let record = client.send_payment(
+        &sender,
+        &recipient,
+        &token,
         &1_000i128,
         &String::from_str(&env, "max fee test"),
     );
