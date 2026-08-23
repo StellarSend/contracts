@@ -35,6 +35,11 @@
 //!
 //! Persistent (keyed per holder):
 //!   (KEY_WRAPPED_BAL, address) → i128
+//!
+//! Each WBAL entry is TTL-managed: reads and writes extend it to
+//! `WBAL_TTL_EXTEND_TO` ledgers once it has less than `WBAL_TTL_THRESHOLD`
+//! left, so a dormant balance never reaches archival (which would trap on
+//! read and lock the holder out of their funds).
 
 #![no_std]
 
@@ -50,6 +55,19 @@ const KEY_ADMIN: Symbol = symbol_short!("ADMIN");
 const KEY_UNDER: Symbol = symbol_short!("UNDER");
 const KEY_INIT: Symbol = symbol_short!("INIT");
 const KEY_WBAL: Symbol = symbol_short!("WBAL");
+
+// ---------------------------------------------------------------------------
+// WBAL entry TTL policy
+// ---------------------------------------------------------------------------
+
+/// One day worth of ledgers (~5s per ledger).
+const DAY_IN_LEDGERS: u32 = 17_280;
+/// A `(KEY_WBAL, holder)` entry is extended once it has less than ~1 week
+/// left to live.
+const WBAL_TTL_THRESHOLD: u32 = 7 * DAY_IN_LEDGERS;
+/// When extended, a `(KEY_WBAL, holder)` entry stays live for ~1 month
+/// from the current ledger.
+const WBAL_TTL_EXTEND_TO: u32 = 31 * DAY_IN_LEDGERS;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -215,6 +233,9 @@ impl TokenBridgeContract {
             .ok_or(TokenBridgeError::ArithmeticOverflow)?;
         let bal_key = (KEY_WBAL, from.clone());
         env.storage().persistent().set(&bal_key, &new_bal);
+        env.storage()
+            .persistent()
+            .extend_ttl(&bal_key, WBAL_TTL_THRESHOLD, WBAL_TTL_EXTEND_TO);
 
         // Return underlying tokens.
         let token_client = token::Client::new(&env, &underlying);
@@ -267,7 +288,20 @@ impl TokenBridgeContract {
 
     fn get_wrapped_balance_internal(env: &Env, holder: &Address) -> i128 {
         let bal_key = (KEY_WBAL, holder.clone());
-        env.storage().persistent().get(&bal_key).unwrap_or(0i128)
+        match env.storage().persistent().get(&bal_key) {
+            Some(balance) => {
+                // Opportunistically refresh a live-but-stale entry so a
+                // passive holder's balance stays queryable; extending is
+                // only valid while the entry is alive (an archived entry
+                // would trap on this very get), hence no extension attempt
+                // for holders without an entry.
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&bal_key, WBAL_TTL_THRESHOLD, WBAL_TTL_EXTEND_TO);
+                balance
+            }
+            None => 0,
+        }
     }
 
     fn credit_wrapped(env: &Env, holder: &Address, amount: i128) -> Result<i128, TokenBridgeError> {
@@ -277,6 +311,9 @@ impl TokenBridgeContract {
             .ok_or(TokenBridgeError::ArithmeticOverflow)?;
         let bal_key = (KEY_WBAL, holder.clone());
         env.storage().persistent().set(&bal_key, &new_bal);
+        env.storage()
+            .persistent()
+            .extend_ttl(&bal_key, WBAL_TTL_THRESHOLD, WBAL_TTL_EXTEND_TO);
         Ok(new_bal)
     }
 }
