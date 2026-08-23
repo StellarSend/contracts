@@ -2,8 +2,10 @@
 
 #![cfg(test)]
 
+extern crate std;
+
 use soroban_sdk::{
-    testutils::Address as _,
+    testutils::{Address as _, Ledger as _},
     token::{Client as TokenClient, StellarAssetClient},
     Address, Env,
 };
@@ -62,6 +64,47 @@ fn setup() -> (
 
 fn mint(env: &Env, token: &Address, admin: &Address, to: &Address, amount: i128) {
     StellarAssetClient::new(env, token).mint(to, &amount);
+}
+
+/// Restore the bridge contract's instance and code entries so the contract
+/// stays invokable after large ledger-sequence jumps.
+///
+/// On the real network an archived instance blocks invocation entirely
+/// (operators run a restore operation to bring it back); this mirrors that
+/// restore for the test harness only. It deliberately never touches
+/// `ContractData` entries, so the WBAL entries under test are left exactly
+/// as the contract's own TTL policy left them.
+fn restore_bridge_instance(env: &Env, client: &TokenBridgeContractClient) {
+    use soroban_sdk::xdr::{ContractDataDurability, LedgerKey, LedgerKeyContractData, ScVal};
+    use std::rc::Rc;
+
+    // 4_096 is the test environment's default min_persistent_entry_ttl.
+    let budget = env.host().budget_cloned();
+    let live_until = env.ledger().sequence() + 4_096 - 1;
+    let instance_key = Rc::new(LedgerKey::ContractData(LedgerKeyContractData {
+        contract: (&client.address).into(),
+        key: ScVal::LedgerKeyContractInstance,
+        durability: ContractDataDurability::Persistent,
+    }));
+
+    env.host()
+        .with_mut_storage(|storage| {
+            let mut updates = std::vec::Vec::new();
+            for (k, v) in storage.map.iter(&budget)? {
+                let restore = k.as_ref() == instance_key.as_ref()
+                    || matches!(k.as_ref(), LedgerKey::ContractCode(_));
+                if restore {
+                    if let Some((entry, _)) = v {
+                        updates.push((k.clone(), Some((entry.clone(), Some(live_until)))));
+                    }
+                }
+            }
+            for (key, val) in updates {
+                storage.map = storage.map.insert(key, val, &budget)?;
+            }
+            Ok(())
+        })
+        .unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -329,3 +372,115 @@ fn test_one_users_fee_on_transfer_wrap_cannot_drain_the_pool_for_another_user() 
         Err(Ok(TokenBridgeError::InsufficientWrappedBalance))
     );
 }
+
+// ---------------------------------------------------------------------------
+// WBAL entry TTL management (dormant-balance archival regression)
+//
+// In the test environment a freshly written persistent entry lives until
+// `ledger_sequence + min_persistent_entry_ttl - 1`, i.e. 4_095 ledgers from
+// sequence 0. The tests below walk the ledger up to just before that expiry,
+// let the contract refresh the WBAL entry's TTL through its normal read and
+// write paths, then jump past the original expiry point — which traps if the
+// entry was not refreshed, and returns the correct balance if it was.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_dormant_balance_survives_ttl_window_and_read_refreshes_ttl() {
+    let (env, client, admin, token, token_admin) = setup();
+    client.initialize(&admin, &token);
+
+    let user = Address::generate(&env);
+    mint(&env, &token, &token_admin, &user, 1_000);
+
+    client.wrap(&user, &600i128);
+    assert_eq!(client.get_wrapped_balance(&user), 600);
+
+    // Advance into the last stretch of the WBAL entry's initial lifetime.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 4_000);
+
+    // A successful read must refresh the entry's TTL.
+    assert_eq!(client.get_wrapped_balance(&user), 600);
+
+    // Jump far past the point where the WBAL entry would have expired had
+    // the read above not refreshed it, restore the contract itself into an
+    // invokable state as a network operator would, then query again —
+    // this must not trap.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 10_000);
+    restore_bridge_instance(&env, &client);
+    assert_eq!(client.get_wrapped_balance(&user), 600);
+
+    // The refreshed read keeps the entry available for later operations too.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 100_000);
+    restore_bridge_instance(&env, &client);
+    assert_eq!(client.get_wrapped_balance(&user), 600);
+}
+
+#[test]
+fn test_returning_holder_can_wrap_after_ttl_advancement() {
+    let (env, client, admin, token, token_admin) = setup();
+    client.initialize(&admin, &token);
+
+    let user = Address::generate(&env);
+    mint(&env, &token, &token_admin, &user, 1_000);
+
+    client.wrap(&user, &600i128);
+
+    // Top up near the end of the initial entry lifetime: credit_wrapped
+    // re-reads the balance before writing, so both its read and its write
+    // must keep the entry alive.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 4_000);
+    assert_eq!(client.wrap(&user, &100i128), 700);
+
+    // Past the original expiry of the WBAL entry the holder wraps again;
+    // this must not trap thanks to the earlier top-up's refresh.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 10_000);
+    restore_bridge_instance(&env, &client);
+    assert_eq!(client.wrap(&user, &100i128), 800);
+    assert_eq!(client.get_wrapped_balance(&user), 800);
+}
+
+#[test]
+fn test_returning_holder_can_unwrap_after_ttl_advancement() {
+    let (env, client, admin, token, token_admin) = setup();
+    client.initialize(&admin, &token);
+
+    let user = Address::generate(&env);
+    mint(&env, &token, &token_admin, &user, 2_000);
+
+    client.wrap(&user, &2_000i128);
+
+    // Unwrap near the end of the initial entry lifetime; the debit path
+    // must refresh the entry's TTL after writing the new balance.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 4_000);
+    assert_eq!(client.unwrap(&user, &500i128), 1_500);
+
+    // Past the original expiry of the WBAL entry the holder unwraps again;
+    // this must not trap thanks to the earlier unwrap's refresh.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 10_000);
+    restore_bridge_instance(&env, &client);
+    assert_eq!(client.unwrap(&user, &300i128), 1_200);
+    assert_eq!(client.get_wrapped_balance(&user), 1_200);
+
+    // The underlying payouts across both unwraps are correct.
+    let token_client = TokenClient::new(&env, &token);
+    assert_eq!(token_client.balance(&user), 800);
+}
+
+#[test]
+fn test_get_wrapped_balance_for_unknown_holder_is_zero_without_ttl_extension() {
+    let (env, client, admin, token, _token_admin) = setup();
+    client.initialize(&admin, &token);
+
+    // No WBAL entry exists for this holder: the default of zero must be
+    // returned unchanged, with no extension attempt against a nonexistent
+    // entry.
+    let stranger = Address::generate(&env);
+    assert_eq!(client.get_wrapped_balance(&stranger), 0);
+
+    // Still zero after time passes and the contract is restored into an
+    // invokable state — nothing changed semantics for the missing entry.
+    env.ledger().set_sequence_number(env.ledger().sequence() + 10_000);
+    restore_bridge_instance(&env, &client);
+    assert_eq!(client.get_wrapped_balance(&stranger), 0);
+}
+
